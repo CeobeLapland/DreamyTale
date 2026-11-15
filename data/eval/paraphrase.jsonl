@@ -1,0 +1,51 @@
+{"text": "放吧", "kind": "control", "action": "play"}
+{"text": "开始吧", "kind": "control", "action": "play"}
+{"text": "先停一下", "kind": "control", "action": "pause"}
+{"text": "等一下等一下", "kind": "control", "action": "pause"}
+{"text": "接着往下看", "kind": "control", "action": "resume"}
+{"text": "别停，继续", "kind": "control", "action": "resume"}
+{"text": "不看了", "kind": "control", "action": "stop"}
+{"text": "关掉吧", "kind": "control", "action": "stop"}
+{"text": "暂停", "kind": "control", "action": "pause"}
+{"text": "Play it", "kind": "control", "action": "play"}
+{"text": "Hold on a second", "kind": "control", "action": "pause"}
+{"text": "Keep going", "kind": "control", "action": "resume"}
+{"text": "Stop here", "kind": "control", "action": "stop"}
+{"text": "小熊为什么哭了", "kind": "qa"}
+{"text": "他为啥要跑呀", "kind": "qa"}
+{"text": "这个是啥", "kind": "qa"}
+{"text": "花花的妈妈在哪儿", "kind": "qa"}
+{"text": "一共出现了几只小动物", "kind": "qa"}
+{"text": "他们最后和好了吗", "kind": "qa"}
+{"text": "这句话是啥意思", "kind": "qa"}
+{"text": "snore 这个词怎么念", "kind": "qa"}
+{"text": "Why is the castle shaking", "kind": "qa"}
+{"text": "Who is the little mouse", "kind": "qa"}
+{"text": "How many blocks did they use", "kind": "qa"}
+{"text": "Is the boy braver now", "kind": "qa"}
+{"text": "What does recycle mean", "kind": "qa"}
+{"text": "给我看看城堡搭好那会儿", "kind": "seek"}
+{"text": "带我回到灯光变暗的时候", "kind": "seek"}
+{"text": "刚才那一段再放一次", "kind": "seek"}
+{"text": "跳到他们吵架那里", "kind": "seek"}
+{"text": "翻到小狗叼卡片的地方", "kind": "seek"}
+{"text": "我想看积木倒下来的镜头", "kind": "seek"}
+{"text": "Show me the part where the castle falls", "kind": "seek"}
+{"text": "Jump to the scene with the popcorn", "kind": "seek"}
+{"text": "里面有没有“生日快乐”这句话", "kind": "search"}
+{"text": "帮我找一下 braver 这个词", "kind": "search"}
+{"text": "搜一下“我又不是故意的”", "kind": "search"}
+{"text": "那句“还不倒”在第几分钟", "kind": "search"}
+{"text": "Find the word POPCORN", "kind": "search"}
+{"text": "把 POPCORN 标一下", "kind": "highlight"}
+{"text": "把这句话高亮出来", "kind": "highlight"}
+{"text": "圈出 Kung Fu 这几个字", "kind": "highlight"}
+{"text": "Highlight the word braver", "kind": "highlight"}
+{"text": "戳一下那个机器人", "kind": "touch"}
+{"text": "点这个", "kind": "touch"}
+{"text": "这个爆米花是什么", "kind": "qa", "note": "触点之后的问题，文本上仍是提问"}
+{"text": "Tap the poster", "kind": "touch"}
+{"text": "点一下章鱼的眼睛", "kind": "touch"}
+{"text": "嗯", "kind": "other"}
+{"text": "好的", "kind": "other"}
+{"text": "你叫什么名字", "kind": "qa"}

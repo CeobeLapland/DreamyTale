@@ -1,2 +1,29 @@
 temp/
 abandoned/
+
+# ---- 命题组原始素材 ----
+# 约 290MB（6 个 PDF + 300 个 wav），不进 git。
+# 团队共享走网盘；真要入库请用 git-lfs，别直接 commit。
+# 本地保留即可，make parse 直接读这里。
+企业预选赛绘本素材/
+
+# ---- 数据 ----
+# 标注产物（facts.jsonl / cards.jsonl / aliases.json）要进 git，是答辩证据
+# 生成缓存不进 git，见 docs/02-数据契约.md
+data/books/*/pages/
+data/books/*/keyframes/
+data/books/*/render/
+data/traces/
+data/cache/
+
+# ---- 运行 ----
+__pycache__/
+*.py[cod]
+.venv/
+node_modules/
+.env
+.env.local
+
+# ---- 系统 ----
+.DS_Store
+Thumbs.db

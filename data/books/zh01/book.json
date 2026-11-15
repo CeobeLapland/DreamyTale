@@ -1,0 +1,13 @@
+{
+  "book_id": "zh01",
+  "source_pdf": "企业预选赛绘本素材/绘本素材/中文绘本01.pdf",
+  "pages": 12,
+  "long_edge": 1600,
+  "page_sizes": [
+    "1600x1600",
+    "1600x800"
+  ],
+  "pages_without_text": 1,
+  "pages_without_text_or_image": 0,
+  "text_layer": "ok"
+}

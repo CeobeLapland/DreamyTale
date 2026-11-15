@@ -1,0 +1,91 @@
+{
+  "total_records": 328,
+  "by_kind": {
+    "control": 65,
+    "seek": 79,
+    "qa": 117,
+    "touch": 28,
+    "highlight": 19,
+    "search": 20
+  },
+  "books": {
+    "zh01": {
+      "records": 54,
+      "required": 15,
+      "kinds": {
+        "control": 14,
+        "seek": 12,
+        "qa": 18,
+        "touch": 4,
+        "highlight": 3,
+        "search": 3
+      },
+      "missing_audio": []
+    },
+    "zh02": {
+      "records": 54,
+      "required": 15,
+      "kinds": {
+        "control": 13,
+        "seek": 12,
+        "qa": 17,
+        "highlight": 4,
+        "touch": 4,
+        "search": 4
+      },
+      "missing_audio": []
+    },
+    "zh03": {
+      "records": 55,
+      "required": 15,
+      "kinds": {
+        "control": 8,
+        "seek": 12,
+        "qa": 23,
+        "search": 4,
+        "touch": 5,
+        "highlight": 3
+      },
+      "missing_audio": []
+    },
+    "en01": {
+      "records": 55,
+      "required": 15,
+      "kinds": {
+        "control": 10,
+        "seek": 16,
+        "touch": 5,
+        "qa": 18,
+        "highlight": 3,
+        "search": 3
+      },
+      "missing_audio": []
+    },
+    "en02": {
+      "records": 55,
+      "required": 15,
+      "kinds": {
+        "control": 9,
+        "seek": 12,
+        "touch": 5,
+        "qa": 23,
+        "highlight": 3,
+        "search": 3
+      },
+      "missing_audio": []
+    },
+    "en03": {
+      "records": 55,
+      "required": 15,
+      "kinds": {
+        "control": 11,
+        "seek": 15,
+        "touch": 5,
+        "qa": 18,
+        "highlight": 3,
+        "search": 3
+      },
+      "missing_audio": []
+    }
+  }
+}
