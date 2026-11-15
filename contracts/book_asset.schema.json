@@ -1,0 +1,309 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dreamytale.local/schemas/book_asset.schema.json",
+  "title": "Book Asset",
+  "description": "一本书的完整资产描述。A 产出、B 填充、C 只读。允许边做边填：MVP 只需满足 required，其余字段可缺省。坐标一律为页面归一化坐标 0-1。",
+  "type": "object",
+  "required": ["schema_version", "book", "pages"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "0.1.0" },
+    "book": { "$ref": "#/$defs/Book" },
+    "pages": { "type": "array", "items": { "$ref": "#/$defs/Page" } },
+    "characters": { "type": "array", "items": { "$ref": "#/$defs/Character" } },
+    "story_graph": { "$ref": "#/$defs/StoryGraph" },
+    "branches": { "type": "array", "items": { "$ref": "#/$defs/Branch" } },
+    "shots": { "type": "array", "items": { "$ref": "#/$defs/Shot" } },
+    "meta": { "$ref": "#/$defs/Meta" }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "Book": {
+      "type": "object",
+      "required": ["id", "title"],
+      "properties": {
+        "id": { "type": "string", "description": "书 ID，如 book-01" },
+        "title": { "type": "string" },
+        "language": { "type": "string", "default": "zh-CN" },
+        "age_range": { "type": "array", "items": { "type": "integer" }, "description": "如 [3, 8]" },
+        "page_count": { "type": "integer" },
+        "cover_image": { "type": "string" },
+        "source": { "type": "string", "description": "素材来源，对应 SOURCES.md" },
+        "license": { "type": "string" }
+      }
+    },
+    "Page": {
+      "type": "object",
+      "required": ["id", "index", "image"],
+      "properties": {
+        "id": { "type": "string" },
+        "index": { "type": "integer", "description": "从 1 开始" },
+        "spread_id": { "type": "string", "description": "跨页 ID，左右页共用一个" },
+        "side": { "type": "string", "enum": ["left", "right", "single"] },
+        "image": { "type": "string" },
+        "width": { "type": "integer" },
+        "height": { "type": "integer" },
+        "ocr_text": { "type": "string" },
+        "narration": { "type": "string", "description": "这一页的旁白" },
+        "scene": { "$ref": "#/$defs/Scene" },
+        "hotspots": { "type": "array", "items": { "$ref": "#/$defs/Hotspot" } },
+        "character_ids": { "type": "array", "items": { "type": "string" } },
+        "events": { "type": "array", "items": { "$ref": "#/$defs/Event" } },
+        "knowledge": { "type": "array", "items": { "$ref": "#/$defs/Knowledge" } },
+        "questions": { "type": "array", "items": { "$ref": "#/$defs/Question" } },
+        "branch_ids": { "type": "array", "items": { "type": "string" } },
+        "bridge": { "$ref": "#/$defs/Bridge" },
+        "assets": { "$ref": "#/$defs/PageAssets" }
+      }
+    },
+    "Scene": {
+      "type": "object",
+      "properties": {
+        "location": { "type": "string" },
+        "time_of_day": { "type": "string" },
+        "weather": { "type": "string" },
+        "mood": { "type": "string" }
+      }
+    },
+    "Hotspot": {
+      "type": "object",
+      "required": ["id", "label", "polygon"],
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "category": {
+          "type": "string",
+          "enum": ["character", "animal", "object", "plant", "place", "text", "other"]
+        },
+        "polygon": {
+          "type": "array",
+          "description": "页面归一化坐标多边形，用于手指命中检测",
+          "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+          "minItems": 3
+        },
+        "bbox": {
+          "type": "array",
+          "description": "[x, y, w, h]，归一化",
+          "items": { "type": "number" },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "character_id": { "type": "string" },
+        "audio": { "type": "string" },
+        "knowledge": { "type": "string", "description": "点一下讲什么" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "Character": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "aliases": { "type": "array", "items": { "type": "string" } },
+        "appearance": {
+          "type": "object",
+          "properties": {
+            "primary_colors": { "type": "array", "items": { "type": "string" } },
+            "secondary_colors": { "type": "array", "items": { "type": "string" } },
+            "forbidden_colors": { "type": "array", "items": { "type": "string" } },
+            "proportions": { "type": "string", "description": "如 头身比 1:2" },
+            "features": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "expressions": { "type": "array", "items": { "type": "string" } },
+        "voice": {
+          "type": "object",
+          "properties": {
+            "timbre": { "type": "string" },
+            "rate": { "type": "string" },
+            "pitch": { "type": "string" },
+            "catchphrase": { "type": "string" }
+          }
+        },
+        "personality": { "type": "array", "items": { "type": "string" } },
+        "relationships": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "target_id": { "type": "string" },
+              "relation": { "type": "string" }
+            }
+          }
+        },
+        "forbidden": { "type": "array", "items": { "type": "string" } },
+        "puppet": {
+          "type": "object",
+          "properties": {
+            "layers": { "type": "array", "items": { "type": "string" } },
+            "rig": { "type": "string", "description": "骨骼/关节配置的文件路径" },
+            "idle_actions": { "type": "array", "items": { "type": "string" } },
+            "click_actions": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "Event": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "summary": { "type": "string" },
+        "cause": { "type": "string" },
+        "effect": { "type": "string" },
+        "emotion": { "type": "string" }
+      }
+    },
+    "Knowledge": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "topic": { "type": "string" },
+        "content": { "type": "string" },
+        "age_band": { "type": "string", "enum": ["3-5", "6-8"] }
+      }
+    },
+    "Question": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "answer": { "type": "string" },
+        "citations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "page_id": { "type": "string" },
+              "bbox": { "type": "array", "items": { "type": "number" } },
+              "timestamp": { "type": "number", "description": "视频秒数，可选" }
+            }
+          }
+        },
+        "difficulty": { "type": "string", "enum": ["easy", "medium", "hard"] },
+        "source": { "type": "string", "enum": ["official", "generated", "manual"] }
+      }
+    },
+    "StoryGraph": {
+      "type": "object",
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "type": { "type": "string", "enum": ["page", "event", "state", "knowledge"] },
+              "page_id": { "type": "string" },
+              "summary": { "type": "string" }
+            }
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "from": { "type": "string" },
+              "to": { "type": "string" },
+              "relation": {
+                "type": "string",
+                "enum": ["next", "cause", "before", "with", "knows", "bridge"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "Branch": {
+      "type": "object",
+      "required": ["id", "page_id", "options"],
+      "properties": {
+        "id": { "type": "string" },
+        "page_id": { "type": "string" },
+        "prompt": { "type": "string", "description": "书灵怎么问" },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "action": { "type": "string" },
+              "next_page_id": { "type": "string" }
+            }
+          }
+        },
+        "default_option": { "type": "string", "description": "孩子不选时走哪条" }
+      }
+    },
+    "Bridge": {
+      "type": "object",
+      "description": "页间连贯的视觉/声音锚点",
+      "properties": {
+        "from_page_id": { "type": "string" },
+        "to_page_id": { "type": "string" },
+        "shared_elements": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "Shot": {
+      "type": "object",
+      "description": "视频镜头索引，一问就能跳到第几秒",
+      "required": ["id", "page_id", "video"],
+      "properties": {
+        "id": { "type": "string" },
+        "page_id": { "type": "string" },
+        "video": { "type": "string" },
+        "start": { "type": "number" },
+        "end": { "type": "number" },
+        "description": { "type": "string" },
+        "style_ref": { "type": "string" },
+        "objects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": { "type": "string" },
+              "bbox": { "type": "array", "items": { "type": "number" } },
+              "t": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    "PageAssets": {
+      "type": "object",
+      "properties": {
+        "layers": {
+          "type": "object",
+          "properties": {
+            "background": { "type": "string" },
+            "characters": { "type": "array", "items": { "type": "string" } },
+            "props": { "type": "array", "items": { "type": "string" } },
+            "foreground": { "type": "string" }
+          }
+        },
+        "audio": {
+          "type": "object",
+          "properties": {
+            "narration": { "type": "string" },
+            "sfx": { "type": "array", "items": { "type": "string" } },
+            "bgm": { "type": "string" }
+          }
+        },
+        "highlight_shot_id": { "type": "string" }
+      }
+    },
+    "Meta": {
+      "type": "object",
+      "properties": {
+        "generated_at": { "type": "string", "format": "date-time" },
+        "model_versions": { "type": "object", "additionalProperties": { "type": "string" } },
+        "qa_status": { "type": "string", "enum": ["draft", "checked", "approved"] },
+        "pregenerated": { "type": "boolean", "description": "必须在后台与项目说明书中披露" },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}
