@@ -1,0 +1,13 @@
+{
+  "book_id": "chem01",
+  "source_pdf": "test/高中化学必修第一册.pdf",
+  "pages": 130,
+  "long_edge": 1600,
+  "page_sizes": [
+    "1131x1600"
+  ],
+  "pages_without_text": 130,
+  "pages_without_text_or_image": 0,
+  "text_layer": "none",
+  "content_type": "expository"
+}

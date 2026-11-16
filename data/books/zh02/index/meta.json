@@ -1,0 +1,10 @@
+{
+  "book_id": "zh02",
+  "model": "text-embedding-nomic-embed-text-v1.5",
+  "dim": 768,
+  "count": 37,
+  "corpus_hash": "13703f0e28843167",
+  "built_at": "2026-11-16T12:15:01",
+  "build_ms": 565,
+  "chunking": "按书页文本块 + 视觉叙事，短于 8 字丢弃，排除 note"
+}

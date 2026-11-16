@@ -1,12 +1,14 @@
 {
   "book_id": "en01",
+  "content_type": "narrative",
   "source_pdf": "企业预选赛绘本素材/绘本素材/英文绘本01.pdf",
   "pages": 28,
   "long_edge": 1600,
   "page_sizes": [
     "1082x1600"
   ],
-  "pages_without_text": 0,
+  "boilerplate_blocks_removed": 29,
+  "pages_without_text": 28,
   "pages_without_text_or_image": 0,
-  "text_layer": "ok"
+  "text_layer": "none"
 }

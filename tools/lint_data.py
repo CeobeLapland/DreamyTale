@@ -26,11 +26,12 @@ INTENTS = {
 }
 ACTIONS = {"play", "pause", "resume", "stop"}
 LANGS = {"zh", "en"}
-SUBJECT_TYPES = {"character", "object", "scene", "action"}
+SUBJECT_TYPES = {"character", "object", "scene", "action",
+                 "concept", "formula", "passage"}
 SOURCES = {"human", "auto"}
 TIERS = {"strong", "weak", "generic", "guide"}
 VERDICTS = {"ok", "wrong", "miss", "stuck"}
-BLOCK_TYPES = {"title", "body", "caption", "sfx"}
+BLOCK_TYPES = {"title", "body", "caption", "sfx", "note"}
 ATTR_KEYS = {"颜色", "数量", "动作", "表情", "位置", "穿着", "状态", "大小", "材质", "形状"}
 
 STRONG_MAX = 30
@@ -145,6 +146,7 @@ def lint_books(rep):
         facts = lint_facts(rep, book, dims)
         cards = lint_cards(rep, book, facts)
         lint_shots(rep, book)
+        lint_narrative(rep, book)
         lint_docs(rep, book, dims)
         check_refs(rep, book, facts, cards)
 
@@ -398,6 +400,32 @@ def lint_shots(rep, book):
             msg = bbox_ok(obj.get("bbox"))
             if msg:
                 rep.err(f"{where} objects[{j}]", msg)
+
+
+def lint_narrative(rep, book):
+    path = book / "narrative.jsonl"
+    if not path.exists():
+        return
+    rep.files += 1
+    pages = set()
+    for i, rec in enumerate(read_jsonl(path), 1):
+        rep.records += 1
+        where = f"{book.name}/narrative.jsonl:{i}"
+        page = rec.get("page_no")
+        if not is_int(page):
+            rep.err(where, "page_no 必须是整数")
+            continue
+        if page in pages:
+            rep.err(where, f"page_no {page} 重复")
+        pages.add(page)
+        text = rec.get("text") or ""
+        if len(text) < 10:
+            rep.err(where, "text 太短，叙事层要写清楚这一页发生了什么")
+        if rec.get("source") not in {"vlm", "human"}:
+            rep.err(where, "source 必须是 vlm 或 human")
+        ents = rec.get("entities")
+        if not isinstance(ents, list) or not ents:
+            rep.warn(where, "entities 为空，seek 会少一条线索")
 
 
 def check_refs(rep, book, facts, cards):

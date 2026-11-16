@@ -49,13 +49,39 @@ def check():
     if code:
         print("\ncheck 未通过，先修错误再提交")
         return code
+    tests = ROOT / "tests"
+    if tests.is_dir():
+        for f in sorted(tests.glob("test_*.py")):
+            if run(str(f.relative_to(ROOT))) != 0:
+                print(f"\n{ f.name } 失败")
+                return 1
     print("\ncheck 通过")
     return 0
 
 
-@task("ingest", "任意 PDF 入库：拆页图 + PageDocument（需 PyMuPDF）")
+@task("ingest", "任意 PDF 入库：拆页图 + PageDocument（需 pypdfium2）")
 def ingest():
     return run("tools/ingest_book.py", *sys.argv[2:])
+
+
+@task("timeline", "由页数据生成占位时间轴 shots.jsonl")
+def timeline():
+    return run("tools/build_timeline.py", *sys.argv[2:])
+
+
+@task("index", "构建向量索引（需 LLM_EMBED_MODEL）")
+def index():
+    return run("tools/build_index.py", *sys.argv[2:])
+
+
+@task("narrative", "用 VLM 把书页读成文字（需视觉模型）")
+def narrative():
+    return run("tools/build_narrative.py", *sys.argv[2:])
+
+
+@task("audit", "盘点每本书当前支持哪些交互、缺什么")
+def audit():
+    return run("tools/audit_book.py", *sys.argv[2:])
 
 
 @task("route", "跑六类意图路由：脚本基准 + 口语基准")
@@ -63,11 +89,19 @@ def route():
     return run("tools/classify.py", "--bench")
 
 
-@task("eval", "全量评测 328 条（待实现）")
+@task("eval", "按脚本回放 328 条，出准确率与延迟")
 def evaluate():
-    print("TODO: 评测 harness，见 docs/04-评测方案.md")
-    print("     先用 python tasks.py lint 保证数据是干净的")
-    return 0
+    return run("tools/run_eval.py", *sys.argv[2:])
+
+
+@task("llm", "查看模型接入状态（加 --ping 试一次真实调用）")
+def llm():
+    return run("tools/llm.py", *sys.argv[2:])
+
+
+@task("serve", "起本地演示服务 http://127.0.0.1:8765")
+def serve():
+    return run("tools/server.py")
 
 
 @task("clean", "清临时产物（不碰标注文件和素材）")

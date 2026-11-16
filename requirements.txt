@@ -1,18 +1,13 @@
-# 骨架期只装必需项，装之前先想想是不是真需要。
-# tools/ 下的 lint 和 classify 一律用标准库，保证 git clone 就能跑：
-#   python tasks.py lint      零依赖
-#   python tasks.py route     零依赖
-# 只有 ingest（拆 PDF）和后续的图像部分需要装东西。
+# 骨架期只装必需项。lint / route / timeline / eval / audit 零依赖，clone 即跑。
+# 只有 ingest（拆 PDF）和后续图像部分需要装东西。
 
-# PDF 拆页 + 文本层 bbox
-# 注意：PyMuPDF 2.x 会顺带拉 onnxruntime（60MB+），我们根本用不到。
-# 1.24.x 是单包无额外依赖，优先装这个。
-PyMuPDF>=1.24.10,<2
+# PDF 渲染 + 文本层。4MB，无额外依赖——比 PyMuPDF 那 63MB 清爽得多。
+# PNG 编码用标准库 zlib 手写，所以不需要 Pillow。
+pypdfium2>=4.30
 
-# 图像：页指纹、bbox 可视化、风格相似度
-opencv-python-headless>=4.9
-numpy>=1.26
-Pillow>=10.2
+# 图像：页指纹、bbox 可视化、风格相似度（等做页识别时再装）
+# opencv-python-headless>=4.9
+# numpy>=1.26
 
 # 中文拼音（三级召回的第 0 级靠它）
 pypinyin>=0.51

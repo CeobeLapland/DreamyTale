@@ -21,6 +21,7 @@ PNG 用标准库 zlib 手写，不装 Pillow——少一个依赖就少一个装
 import argparse
 import hashlib
 import json
+import re
 import struct
 import sys
 import zlib
@@ -194,6 +195,8 @@ def collect_blocks(page, scale, page_h):
     for blk in out:
         if med and blk["size"] > med * 1.35 and len(blk["text"]) <= 40:
             blk["type"] = "title"
+        if is_note(blk["text"]):
+            blk["type"] = "note"
         blk.pop("size")
 
     order = [b["block_id"] for b in
@@ -203,6 +206,53 @@ def collect_blocks(page, scale, page_h):
 
 # ---------------------------------------------------------------- 主流程
 
+def _norm(s: str) -> str:
+    """只留文字和数字，用来判断"是不是同一段话"。"""
+    return "".join(ch for ch in s if ch.isalnum())
+
+
+NOTE_MARKERS = ("阅读指导", "汉字源流", "甲骨文", "小篆", "隶书", "金文", "楷书")
+
+
+def is_note(text: str) -> bool:
+    """教学辅助文字：讲"怎么读这本书"，不是故事本身。"""
+    return sum(1 for m in NOTE_MARKERS if m in text) >= 1
+
+
+NOISE_RE = re.compile(r"\.indd\b|^\s*\d{1,4}\s*$")
+
+
+def is_noise(text: str) -> bool:
+    """生产噪声：赛题水印、InDesign 导出页脚、纯页码。"""
+    if "仅供" in text and ("参赛" in text or "外传" in text):
+        return True
+    return bool(NOISE_RE.search(text))
+
+
+def drop_boilerplate(records) -> int:
+    """去掉页眉页脚水印：出现在 50% 以上页面的文字，是噪声不是内容。"""
+    if not records:
+        return 0
+    seen = {}
+    for rec in records:
+        for blk in rec["text_blocks"]:
+            key = _norm(blk["text"])
+            if key:
+                seen.setdefault(key, set()).add(rec["page_no"])
+
+    threshold = len(records) * 0.5
+    boiler = {k for k, pages in seen.items() if len(pages) >= threshold}
+
+    dropped = 0
+    for rec in records:
+        kept = [b for b in rec["text_blocks"]
+                if _norm(b["text"]) not in boiler and not is_noise(b["text"])]
+        dropped += len(rec["text_blocks"]) - len(kept)
+        rec["text_blocks"] = kept
+        rec["reading_order"] = [b["block_id"] for b in kept]
+    return dropped
+
+
 def _rel(path: Path) -> str:
     """尽量给相对路径，给不了就用绝对路径。别为了好看而崩。"""
     try:
@@ -211,7 +261,7 @@ def _rel(path: Path) -> str:
         return path.as_posix()
 
 
-def ingest_one(pdf_path, book_id, long_edge, out_root):
+def ingest_one(pdf_path, book_id, long_edge, out_root, content_type="narrative"):
     pdfium = need_pdfium()
     pdf_path = Path(pdf_path)
     if not pdf_path.exists():
@@ -265,16 +315,23 @@ def ingest_one(pdf_path, book_id, long_edge, out_root):
         })
         bitmap.close()
 
+    # 页眉页脚 / 水印过滤。
+    # 赛题六本书每页都印着同一句"仅供…参赛使用，请勿外传"，那是噪声不是内容。
+    # 判据：同一段文字出现在 50% 以上的页——正文不会有这种重复。
+    dropped = drop_boilerplate(records)
+
     with (out / "docs.jsonl").open("w", encoding="utf-8") as f:
         for rec in records:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-
+    pages_no_text = sum(1 for r in records if not r["text_blocks"])
     meta = {
         "book_id": book_id,
+        "content_type": content_type,
         "source_pdf": _rel(pdf_path),
         "pages": len(records),
         "long_edge": long_edge,
         "page_sizes": sorted({f"{r['width']}x{r['height']}" for r in records}),
+        "boilerplate_blocks_removed": dropped,
         "pages_without_text": pages_no_text,
         "pages_without_text_or_image": pages_no_text_or_image,
         "text_layer": "none" if pages_no_text == len(records) else
@@ -297,6 +354,9 @@ def main(argv=None):
     ap.add_argument("--long-edge", type=int, default=1600, help="归一化长边，默认 1600")
     ap.add_argument("--all", action="store_true", help="跑命题组那六本")
     ap.add_argument("--out", default=str(DATA), help="输出根目录")
+    ap.add_argument("--content-type", default="narrative",
+                    choices=["narrative", "expository"],
+                    help="叙事型（绘本故事）或说明型（教材/科普/说明书）")
     args = ap.parse_args(argv)
 
     out_root = Path(args.out)
@@ -326,7 +386,7 @@ def main(argv=None):
         print(f"book_id 必须小写字母开头、纯 ASCII，当前推导得到 {book_id!r}，"
               f"请用 --book-id 指定", file=sys.stderr)
         return 2
-    ingest_one(pdf, book_id, args.long_edge, out_root)
+    ingest_one(pdf, book_id, args.long_edge, out_root, args.content_type)
     return 0
 
 

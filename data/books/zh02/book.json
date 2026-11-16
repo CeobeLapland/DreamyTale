@@ -1,5 +1,6 @@
 {
   "book_id": "zh02",
+  "content_type": "narrative",
   "source_pdf": "企业预选赛绘本素材/绘本素材/中文绘本02.pdf",
   "pages": 12,
   "long_edge": 1600,
@@ -7,6 +8,7 @@
     "1600x1600",
     "1600x800"
   ],
+  "boilerplate_blocks_removed": 0,
   "pages_without_text": 1,
   "pages_without_text_or_image": 0,
   "text_layer": "ok"
