@@ -3,6 +3,8 @@
 把纸质绘本变成可播放、可检索、可问答、可人工修正的互动读物。
 目标不是只回答六本书的 300 条问题，而是任意 PDF/照片都能走同一条链路。
 
+进度与中心检查：[`docs/STATUS.md`](docs/STATUS.md)。
+
 ## 现在有什么
 
 - `docs/ARCHITECTURE.md`：产品边界、离线/在线两条链、多 Agent 编排、模型适配层、通用性、人工修正、视频策略、延迟预算、分工建议。
@@ -35,6 +37,9 @@ python -m pipeline narrative --all
 
 # 看当前 OCR/VLM 用的是谁
 python -m pipeline models
+
+# 生成一页可视化审核图（PDF block / OCR / 目标短语）
+python -m pipeline review --book zh-01 --page 6 --target "我又不是故意的"
 
 # 只跑某一步
 python -m pipeline ingest --all

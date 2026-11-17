@@ -22,6 +22,7 @@ from .ingest import ingest_book, ingest_pdf
 from .models import build_ocr, build_vlm, config_path, status as provider_status
 from .narrative import run_vlm_all
 from .query_sets import parse_script
+from .review import render_overlay
 from .understanding import run_ocr_all
 
 
@@ -131,6 +132,21 @@ def cmd_narrative(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_review(args: argparse.Namespace) -> int:
+    specs = _select(args)
+    if not specs:
+        raise SystemExit("select --book")
+    if not args.page:
+        raise SystemExit("--page is required")
+    if args.out and len(specs) > 1:
+        raise SystemExit("--out supports one book at a time")
+    for spec in specs:
+        out = Path(args.out) if args.out else None
+        path = render_overlay(spec.book_id, args.page, target=args.target, out_path=out)
+        print(path)
+    return 0
+
+
 def cmd_models(_args: argparse.Namespace) -> int:
     print(f"config: {config_path()}")
     print(f"ocr provider: {build_ocr().name}")
@@ -183,6 +199,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_narrative = sub.add_parser("narrative", help="VLM page narrative; requires a configured VLM")
     add_selection(p_narrative)
     p_narrative.set_defaults(func=cmd_narrative)
+
+    p_review = sub.add_parser("review", help="render a page with PDF/OCR boxes for visual review")
+    add_selection(p_review)
+    p_review.add_argument("--page", type=int, required=True)
+    p_review.add_argument("--target", help="highlight blocks containing this text")
+    p_review.add_argument("--out", help="output PNG path")
+    p_review.set_defaults(func=cmd_review)
 
     p_models = sub.add_parser("models", help="show configured OCR/VLM providers")
     p_models.set_defaults(func=cmd_models)
