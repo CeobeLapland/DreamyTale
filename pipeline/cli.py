@@ -19,7 +19,10 @@ from contracts.validate import main as validate_main
 from .config import BOOKS, DEFAULT_DPI, find_book
 from .coverage import analyze_all
 from .ingest import ingest_book, ingest_pdf
+from .models import build_ocr, build_vlm, config_path, status as provider_status
+from .narrative import run_vlm_all
 from .query_sets import parse_script
+from .understanding import run_ocr_all
 
 
 def _select(args: argparse.Namespace) -> list:
@@ -103,6 +106,41 @@ def cmd_coverage(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_understand(args: argparse.Namespace) -> int:
+    specs = _select(args)
+    if not specs:
+        raise SystemExit("select --all or --book")
+    provider = build_ocr()
+    print(f"ocr provider: {provider.name} (config: {config_path()})")
+    if not provider.available():
+        print("warning: no OCR provider available; pages left unchanged")
+    run_ocr_all(specs, provider)
+    analyze_all(specs)
+    return validate_main(["--all"])
+
+
+def cmd_narrative(args: argparse.Namespace) -> int:
+    specs = _select(args)
+    if not specs:
+        raise SystemExit("select --all or --book")
+    provider = build_vlm()
+    print(f"vlm provider: {provider.name} (config: {config_path()})")
+    if not provider.available():
+        print("warning: no VLM provider available; narrative unchanged")
+    run_vlm_all(specs, provider)
+    return 0
+
+
+def cmd_models(_args: argparse.Namespace) -> int:
+    print(f"config: {config_path()}")
+    print(f"ocr provider: {build_ocr().name}")
+    print(f"vlm provider: {build_vlm().name}")
+    for item in provider_status():
+        state = "available" if item.available else "unavailable"
+        print(f"  {item.kind}: {item.provider} -> {state} {item.detail}".rstrip())
+    return 0
+
+
 def cmd_validate(_args: argparse.Namespace) -> int:
     return validate_main(["--all"])
 
@@ -137,6 +175,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_cov = sub.add_parser("coverage", help="check how much of each QuerySet is resolvable")
     add_selection(p_cov)
     p_cov.set_defaults(func=cmd_coverage)
+
+    p_understand = sub.add_parser("understand", help="OCR pass; fills text from page images")
+    add_selection(p_understand)
+    p_understand.set_defaults(func=cmd_understand)
+
+    p_narrative = sub.add_parser("narrative", help="VLM page narrative; requires a configured VLM")
+    add_selection(p_narrative)
+    p_narrative.set_defaults(func=cmd_narrative)
+
+    p_models = sub.add_parser("models", help="show configured OCR/VLM providers")
+    p_models.set_defaults(func=cmd_models)
 
     p_validate = sub.add_parser("validate", help="validate every book.json and query set")
     p_validate.set_defaults(func=cmd_validate)

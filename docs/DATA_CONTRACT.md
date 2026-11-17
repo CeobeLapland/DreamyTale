@@ -484,6 +484,40 @@ Trace 落 `data/traces/<yyyy-mm-dd>/`，Turn 落 `data/turns/<yyyy-mm-dd>.jsonl`
 
 别名表是命中率的最大来源：角色昵称、颜色指代、方位指代、同义说法。每张卡至少挂 3 条。
 
+### 6.4 Narrative
+
+VLM 把页图读成文字后的产物。对无字绘本是唯一的内容来源，对有字绘本是补充。
+
+```json
+{
+  "page_index": 2,
+  "book_id": "zh-01",
+  "text": "下雨天，两个女孩在客厅地板上搭积木，左边扎马尾的女孩伸手去拿积木，右边扎冲天辫的女孩笑着举起一块黄色积木。",
+  "entities": ["小满", "花花", "积木", "积木城堡"],
+  "visible_text": ["下雨了，小满、花花只好在家里玩。"],
+  "source": "vlm",
+  "confidence": 0.82,
+  "version": 1,
+  "status": "active",
+  "hash": "b2c3d4e5f6071829"
+}
+```
+
+| 字段 | 类型 | 必填 | 约束 |
+| --- | --- | --- | --- |
+| `page_index` | integer | 是 | 引用已有页面 |
+| `book_id` | string | 是 | 引用已有书 |
+| `text` | string | 是 | 80–150 字，只写看得见的内容 |
+| `entities` | string[] | 是 | 本页出现的实体 |
+| `visible_text` | string[] | 否 | 图中可见文字，可空 |
+| `source` | enum | 是 | `vlm` / `human` |
+| `confidence` | number | 是 | 0–1 |
+| `version` | integer | 是 | 从 1 开始 |
+| `status` | enum | 是 | `active` / `superseded` |
+| `hash` | string | 是 | 内容哈希 |
+
+`Narrative` 是连续叙述，不是离散事实；检索要段落，标注要事实，两者不能混。
+
 ## 7. 人工修正
 
 ### 7.1 Annotation
@@ -1046,6 +1080,7 @@ Trace 落 `data/traces/<yyyy-mm-dd>/`，Turn 落 `data/turns/<yyyy-mm-dd>.jsonl`
 - `confidence` 必须在 0–1；不许全部填 1.0。
 - 所有 `page_index`、`hotspot_id`、`span_id`、`scene_id`、`fact_id`、`card_id` 必须能解析到已有对象。
 - `QaCard` 必须有 `evidence` 和 `guide`；`variants` 至少 5 条。
+- `Narrative` 的 `text` 不能为空；`entities` 必须来自画面可见内容。
 - `Annotation.target_id` 必须存在；auto 记录不可变；human 修正 append-only。
 - `Scene` 时间必须在页时长内；`VideoSegment` 路径必须存在；`style_score` 0–1。
 - `BookGenerationResult.manifest_path` 必须指向有效 manifest；manifest 覆盖所有执行阶段。

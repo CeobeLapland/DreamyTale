@@ -1,0 +1,4 @@
+# Optional free/local OCR. The pipeline falls back to no OCR if absent.
+rapidocr_onnxruntime>=1.2
+Pillow>=10
+numpy>=1.24

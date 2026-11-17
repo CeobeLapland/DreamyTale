@@ -39,7 +39,7 @@ from contracts.models import (
 from .config import DATA, DEFAULT_DPI, BookSpec
 
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
-WATERMARK_HINTS = ("仅供", "请勿", "参赛使用", "赛题", "纸书智伴", "版权")
+WATERMARK_HINTS = ("仅供", "请勿", "请久", "清勿", "仅售", "参赛", "赛题", "纸书", "外传", "版权", "人工智", "大赛")
 NOTE_HINTS = (
     "汉字源流",
     "阅读指导",

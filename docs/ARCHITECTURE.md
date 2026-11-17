@@ -98,7 +98,9 @@ I2V       animate(image, prompt, duration, seed) -> video
 Embedding embed(texts) -> vectors
 ```
 
-`models.yaml` 描述 provider、model、base_url、key_env、timeout、retry、并发、成本。支持本地（Ollama/LM Studio/vLLM、faster-whisper、Edge TTS、diffusers）与远程（OpenAI 兼容、云视频 API）两种实现。
+`config/models.yaml` 描述 provider、model、base_url、key_env、timeout、retry、并发、成本。支持本地（Ollama/LM Studio/vLLM、faster-whisper、Edge TTS、diffusers）与远程（OpenAI 兼容、云视频 API）两种实现。
+
+当前默认：OCR = `rapidocr`（本地免费），VLM = `null`（配置本地或远程视觉模型后启用）。`python -m pipeline models` 查看当前生效的提供方。
 
 **没有预算时先用本地/免费栈**：Edge TTS、Whisper、本地 LLM/VLM、2.5D 页动画；适配层保证以后换 API 不改业务。
 
@@ -106,6 +108,7 @@ Embedding embed(texts) -> vectors
 
 - **按页判断文本层**，不是按书：有文本层直接抽；没有才 OCR；两者都失败标 `needs_vision`，不假装读过。
 - **文本层不等于完整**：插画里的手写对白、拟声字、特别排版可能不在 PDF 文本层。例：`zh-01` 第 6 页的“我又不是故意的”在插图里，必须 OCR/VLM 按页/区域补。覆盖检查要能列出这些未命中目标。
+- **OCR 去重与去水印**：与 PDF 文本重叠的识别结果直接丢弃；栅格化水印按 `config/models.yaml` 的 `watermark_phrases` 过滤。OCR 结果写 `source: ocr`，与 PDF 文本共存为 `text_source: mixed`。
 - **内容类型**：`narrative` 走故事/分镜/视频；`expository` 走概念/段落/公式，视频可选；`mixed` 按页决定。
 - **水印/页眉页脚/教学辅助文字**：用“同一段文字出现在 50% 以上页面”等规则过滤；`note` 类型单独保留，供阅读指导用，不混进故事问答。
 - **能力报告**：每本书跑完输出“能查文字/能生成视频/QA 覆盖多少/哪些页需要人工看”，让系统对自己的边界诚实。

@@ -1,0 +1,30 @@
+# Model providers. Change this file to swap models; pipeline code stays the same.
+# Free/local defaults: RapidOCR for OCR, no VLM until one is configured.
+
+ocr:
+  provider: rapidocr
+  fallback: [null]
+  rapidocr:
+    max_side: 1600
+  # Rasterized watermark text on the competition samples. OCR fragments that
+  # mostly reuse these characters are rejected as boilerplate.
+  watermark_phrases:
+    - "仅供第二届北京市大学生人工智能创新大赛纸书智伴赛题参赛使用请勿外传"
+
+vlm:
+  # Set provider to openai_compatible after starting Ollama/LM Studio/vLLM,
+  # or after filling VLM_API_KEY for a hosted endpoint.
+  provider: null
+  fallback: [openai_compatible]
+  openai_compatible:
+    base_url: http://127.0.0.1:11434/v1
+    model: qwen2.5vl:7b
+    api_key_env: VLM_API_KEY
+    timeout: 120
+    max_tokens: 1024
+
+# Future stages use the same pattern:
+# llm:   { provider: openai_compatible, ... }
+# tts:   { provider: edge_tts }
+# asr:   { provider: faster_whisper }
+# i2v:   { provider: null }
