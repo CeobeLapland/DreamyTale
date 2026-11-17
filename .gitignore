@@ -8,17 +8,9 @@ abandoned/
 企业预选赛绘本素材/
 
 # ---- 数据 ----
-# 结构化产物（facts.jsonl / cards.jsonl / aliases.json / story_plan.json /
-# scene_plan.json / manifest.json / capability.json / annotations.jsonl）要进 git，
-# 是答辩证据。原始素材、页图、音视频、索引和缓存不进 git。
-# 契约见 docs/DATA_CONTRACT.md
-data/books/*/pages/
-data/books/*/source/
-data/books/*/derived/video/
-data/books/*/derived/audio/
-data/books/*/derived/scene/keyframes/
-data/books/*/derived/index/
-data/books/*/assets/thumbnails/
+# 公开仓库不提交原书正文、命题组脚本和媒体；本地生成、网盘共享，
+# 答辩材料单独脱敏打包。契约见 docs/DATA_CONTRACT.md
+data/books/
 data/traces/
 data/turns/
 data/cache/

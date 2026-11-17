@@ -37,7 +37,7 @@ v1 的 `BookPackage.pdf_path`、`script_path`、`steps`、`click_targets` 是 2.
 - **双源**：自动产物 `source: auto`，人工修正 `source: human`；human 优先，auto 保留，冲突不静默。
 - **可复现**：生成产物必须带输入哈希、模型版本、提示词版本、seed、参数和输出哈希。
 - **语言**：使用 BCP-47（`zh-CN`、`en`）；中英混排时 `language` 为主语言，`languages` 列全。
-- **权限**：`source/` 中的授权原始素材不得提交到 Git；只提交代码、配置、文档和脱敏后的 JSON 产物。
+- **权限**：`source/` 中的授权原始素材、`book.json`/`query_sets/` 中的原书正文与命题组脚本不得提交到公开 Git；只提交代码、配置、文档和脱敏后的示例数据。
 - **禁止写死**：不得把页面内容、坐标、答案、视频地址写死在代码中；一切来自数据。
 
 ## 2. 单书包目录
@@ -68,7 +68,7 @@ data/books/<book_id>/
     review/annotations.jsonl         # Annotation
     manifest.json                    # GenerationManifest
     capability.json                  # CapabilityReport
-  query_sets/zh-01-script-v1.jsonl    # QuerySet（可选）
+  query_sets/zh-01-script-v1.json     # QuerySet（可选）
   assets/thumbnails/...
 ```
 
@@ -76,7 +76,7 @@ Trace 落 `data/traces/<yyyy-mm-dd>/`，Turn 落 `data/turns/<yyyy-mm-dd>.jsonl`
 
 - 包根为 `data/books/<book_id>/`；所有路径相对于它。
 - `source/` 保存原始快照，不入 Git；`derived/` 中的媒体缓存不入 Git。
-- `facts.jsonl`、`cards.jsonl`、`aliases.json`、`story_plan.json`、`scene_plan.json`、`manifest.json`、`capability.json`、`annotations.jsonl` 是“关键流程配置”和答辩证据，应入 Git。
+- 本仓库公开：`book.json`、`query_sets/`、`derived/understanding/` 含原书正文/命题组脚本，默认不入 Git。`facts.jsonl`、`cards.jsonl`、`aliases.json`、`story_plan.json`、`scene_plan.json`、`manifest.json`、`capability.json`、`annotations.jsonl` 如要入 Git，必须先脱敏并由三人确认；答辩材料单独打包。
 
 ## 3. BookPackage
 
@@ -168,8 +168,8 @@ Trace 落 `data/traces/<yyyy-mm-dd>/`，Turn 落 `data/turns/<yyyy-mm-dd>.jsonl`
 | `image_path` | string | 是 | 可访问的页图 |
 | `width_px` / `height_px` | integer | 是 | 页图像素尺寸 |
 | `width_pt` / `height_pt` | number/null | 否 | PDF 页面尺寸；照片为 `null` |
-| `text` | string | 是 | 扁平可检索文本；无字页为空字符串 |
-| `text_source` | enum | 是 | `embedded_pdf` / `ocr` / `vlm` / `manual` / `mixed` |
+| `text` | string | 是 | 可用于全文检索的正文纯文本；不含页眉/页脚/教学辅助 `note`（note 保留在 blocks） |
+| `text_source` | enum | 是 | `embedded_pdf` / `ocr` / `vlm` / `manual` / `mixed` / `none`；无字页用 `none` |
 | `text_confidence` | number/null | 否 | 0–1 |
 | `language` | string/null | 否 | 本页主语言 |
 | `blocks` | PageBlock[] | 是 | 可为空数组 |
@@ -1039,6 +1039,7 @@ Trace 落 `data/traces/<yyyy-mm-dd>/`，Turn 落 `data/turns/<yyyy-mm-dd>.jsonl`
 - `page_count == len(pages)`。
 - `page.index` 从 1 开始且连续。
 - `BookPackage` 不得包含 `script_path`、`steps`、`click_targets`；脚本属于 `QuerySet`。
+- 无字页：`text` 为空、`text_source=none`、`text_confidence=null`。
 - `QuerySet` 的 `number` 唯一；参赛脚本通常 1–50；`audio_path` 可为空。
 - 每个 `QueryAction.kind` 必填字段齐全；`click.target` 必须能解析到 Hotspot 或页面文字。
 - `PageBlock`、`TextSpan`、`Hotspot` 的 `bbox_px` 必须在页图范围内。
