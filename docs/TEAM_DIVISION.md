@@ -167,11 +167,12 @@ A 与 B 的协作规则：
 生成能力必须封装为可调用函数或服务，输入和输出遵守 `docs/DATA_CONTRACT.md`：
 
 ```text
-BookPackage + Page + ScriptStep
+BookPackage + Page + QuerySet（可选）
+→ PageBlock / PageFact / QaCard
 → StoryPlan
 → ScenePlan
 → VideoSegment
-→ BookGenerationResult
+→ BookGenerationResult / GenerationManifest
 ```
 
 三人共同对生成结果的可用性负责。A 负责把生成函数接入可重试、可监控的后端任务；B 负责生成质量、阶段错误和降级语义；C 负责确认前端能够消费生成结果。
@@ -184,9 +185,11 @@ A、B 共同保证稳定的 HTTP 接口和事件格式：
 POST /api/books/ingest
 GET  /api/books
 GET  /api/books/{book_id}
+GET  /api/books/{book_id}/capability
 POST /api/books/{book_id}/generate
 GET  /api/jobs/{job_id}
-POST /api/qa
+POST /api/interact
+POST /api/qa          # 兼容别名，等价于 kind=qa
 ```
 
 接口字段以 `docs/DATA_CONTRACT.md` 为准。A 是平台接口的集成责任人，B 对生成相关字段和错误语义负责。C 不读取后端内部文件，也不直接调用模型 SDK。
@@ -272,4 +275,39 @@ git status
 3. C 使用 Mock 数据继续完成播放器与交互壳，不等生成链路全部完成。
 4. 三人基于同一本 `zh-01` 完成第一次端到端联调。
 5. 第 3 天结束仍依赖人工改中间文件时，暂停新增功能，优先修复自动化链路。
+
+## 12. 2.0 契约下的调整（待三人确认）
+
+`DATA_CONTRACT.md` 已升到 2.0.0：书与题目分离、生成产物、知识/人工修正、统一交互协议。分工表需要跟着改口径，否则会出现“按目录分人、按产物等接口”的互相阻塞。
+
+### 12.1 按产物分，不按目录分
+
+| 角色 | 主责产物 | 不主责 |
+| --- | --- | --- |
+| A · 运行时/平台 | `backend/`、API、Job、媒体、适配器、评测 runner、启动 | 生成质量、知识内容 |
+| B · 内容工厂 | `pipeline/`、`prompts/`、`data/books/*/derived`、生成质量、知识自动草稿 | 前端主体验、任务队列 |
+| C · 体验/审核/评测 | `frontend/`、审核页、评测面板、演示视频 | 模型调用、生成适配器 |
+
+### 12.2 QA / 标注归属
+
+- B 出自动草稿（facts / cards / aliases / 热区）和质量标准。
+- C 做审核页与评测面板，从阅读体验验收。
+- A 负责把修正落库、版本化、通过接口暴露。
+- 三人共同抽检；人工修正优先于自动，auto 保留，冲突进队列。
+
+### 12.3 三个真正的耦合点
+
+1. `BookPackage` + 媒体路径（A ↔ B ↔ C）
+2. `Scene` 时间轴（B ↔ C）
+3. `Interaction` 协议（A ↔ B ↔ C）
+
+这三处由契约定死，其余并行。不要按“谁负责哪个目录”来拒绝改动；卡住链路的人先修。
+
+### 12.4 兜底
+
+如果 A/C 被卡住，B 可以接手导入器、API 骨架、标注审核页；完整前端和任务队列仍由 A/C 主责。任何接手先在群里说一声，避免重复改同一文件。
+
+### 12.5 通用性口径
+
+原文“支持第二本同级别绘本”改为“支持任意 PDF/照片”。验收不是“第二本也能跑”，而是“拿一本没见过的书，代码不改，能出页面、能交互、能给出能力报告”。
 

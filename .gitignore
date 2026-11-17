@@ -8,12 +8,19 @@ abandoned/
 企业预选赛绘本素材/
 
 # ---- 数据 ----
-# 标注产物（facts.jsonl / cards.jsonl / aliases.json）要进 git，是答辩证据
-# 生成缓存不进 git，见 docs/02-数据契约.md
+# 结构化产物（facts.jsonl / cards.jsonl / aliases.json / story_plan.json /
+# scene_plan.json / manifest.json / capability.json / annotations.jsonl）要进 git，
+# 是答辩证据。原始素材、页图、音视频、索引和缓存不进 git。
+# 契约见 docs/DATA_CONTRACT.md
 data/books/*/pages/
-data/books/*/keyframes/
-data/books/*/render/
+data/books/*/source/
+data/books/*/derived/video/
+data/books/*/derived/audio/
+data/books/*/derived/scene/keyframes/
+data/books/*/derived/index/
+data/books/*/assets/thumbnails/
 data/traces/
+data/turns/
 data/cache/
 
 # ---- 运行 ----
