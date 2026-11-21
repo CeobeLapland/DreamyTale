@@ -110,8 +110,17 @@ def _now() -> datetime:
 
 
 def _language_rule(language: str) -> str:
+    """The story follows the book, but the keywords stay Chinese.
+
+    The official commands for the English books are mixed: the seek/click
+    instructions are Chinese ("找到蝙蝠装扮的画面"), so the aliases that make
+    seek work have to be Chinese even when the book is English.
+    """
     if str(language).lower().startswith("en"):
-        return "Write every field in English."
+        return (
+            "Write description, narration and dialogues in English. "
+            "Write keywords in Chinese."
+        )
     return "所有字段用中文书写。"
 
 
@@ -296,7 +305,7 @@ def _page_plan_prompt(
         "- dialogues：角色台词，没有就给空数组；\n"
         "- entities：这一页出现的实体；\n"
         "- keywords：2-4 个孩子会怎么描述这一刻的短语（比如“城堡晃动”“两人吵架”），"
-        "用来让语音指令能定位到这一段；\n"
+        "用中文写，因为用户用中文语音指令定位画面；\n"
         "- duration_ms：这一段大约多少毫秒（建议 6000）。\n"
         "只写画面里有的东西，不要编造。\n"
         f"{_language_rule(language)}\n"

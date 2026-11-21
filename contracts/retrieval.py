@@ -30,6 +30,7 @@ STOPWORDS = (
     "里",
     "中",
     "页",
+    "地",
     "和",
     "与",
     "并",
@@ -110,6 +111,6 @@ def find_scene(index: dict[str, Any], query: str) -> dict[str, Any] | None:
         if score > best_score:
             best_score = score
             best = scene
-    if best is not None and best_score >= 3:
+    if best is not None and best_score >= 2:
         return best
     return None

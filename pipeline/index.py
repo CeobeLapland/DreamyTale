@@ -150,6 +150,10 @@ def build_index(spec: BookSpec) -> dict[str, Any]:
         int(record.get("page_index") or 0): str(record.get("text") or "")
         for record in _narratives(spec.book_id)
     }
+    page_texts = {
+        int(page.get("index") or 0): str(page.get("text") or "")
+        for page in book.get("pages", [])
+    }
     for scene in _scenes(spec.book_id):
         scene_id = str(scene.get("scene_id") or "")
         page_index = int(scene.get("page_index") or 0)
@@ -178,6 +182,9 @@ def build_index(spec: BookSpec) -> dict[str, Any]:
                 " ".join(str(alias) for alias in aliases),
                 " ".join(str(item.get("text") or "") for item in subtitles),
                 page_narratives.get(page_index, ""),
+                # The original page text: the official queries are written with
+                # the words the book uses.
+                page_texts.get(page_index, ""),
             ]
         )
         scene_records.append(
