@@ -4,6 +4,11 @@ from backend.app.adapters.base import (
     AdapterUnavailableError,
 )
 from backend.app.adapters.ocr import OCRAdapter, OCRBlock, OCRResult
+from backend.app.adapters.vlm import (
+    VLMAdapter,
+    VLMObject,
+    VLMPageResult,
+)
 
 __all__ = [
     "AdapterError",
@@ -12,4 +17,7 @@ __all__ = [
     "OCRAdapter",
     "OCRBlock",
     "OCRResult",
+    "VLMAdapter",
+    "VLMObject",
+    "VLMPageResult",
 ]
