@@ -105,7 +105,8 @@ python -m pipeline validate          → ok: 6 book(s), 6 query set(s)
 
 ## 7. 什么时候需要人
 
-- **现在**：把 `ceobe-backspace` 合进 `main`（我这边 `git push origin ceobe-backspace:main` 就能快进，但按分工规则应该由 A 或三人确认后再动主干）。
+- **已做**：`ceobe-backspace` 已快进合进 `main`（`3bb7f60..cf5d078`），主干后端不再是坏的，契约统一到 v2。
 - **现在**：装 Ollama 并拉一个视觉模型（`ollama pull qwen2.5vl:7b`），否则 VLM 一直是空转。
+- **现在**：告诉 A 和 C：接口按 `contracts/book_api.ts`（v2）接，`/api/interact` 是主入口，`/api/qa` 只是别名。
 - **后面**：QA 卡、热区、OCR 错字的人工抽检；演示视频和说明书。
 - **代码上**：暂时不需要你动手，我继续做 StoryPlan/ScenePlan。
