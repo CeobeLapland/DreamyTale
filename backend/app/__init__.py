@@ -1,0 +1,2 @@
+"""Book ingestion application."""
+
