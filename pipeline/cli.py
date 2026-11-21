@@ -19,6 +19,7 @@ from contracts.validate import main as validate_main
 from .config import BOOKS, DEFAULT_DPI, find_book
 from .coverage import analyze_all
 from .ingest import ingest_book, ingest_pdf
+from .manual import auto_narrative_records, seed_narrative_corrections
 from .models import build_ocr, build_vlm, config_path, status as provider_status
 from .narrative import run_vlm_all
 from .query_sets import parse_script
@@ -147,6 +148,19 @@ def cmd_review(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_manual(args: argparse.Namespace) -> int:
+    specs = _select(args)
+    if not specs:
+        raise SystemExit("select --all or --book")
+    for spec in specs:
+        records = auto_narrative_records(spec.book_id)
+        if not records:
+            print(f"{spec.book_id}: no auto narrative yet; create the file empty and fill it by hand")
+        path = seed_narrative_corrections(spec.book_id, records)
+        print(f"{spec.book_id}: {path}")
+    return 0
+
+
 def cmd_models(_args: argparse.Namespace) -> int:
     print(f"config: {config_path()}")
     print(f"ocr provider: {build_ocr().name}")
@@ -206,6 +220,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_review.add_argument("--target", help="highlight blocks containing this text")
     p_review.add_argument("--out", help="output PNG path")
     p_review.set_defaults(func=cmd_review)
+
+    p_manual = sub.add_parser("manual", help="seed the human correction file for a book")
+    add_selection(p_manual)
+    p_manual.set_defaults(func=cmd_manual)
 
     p_models = sub.add_parser("models", help="show configured OCR/VLM providers")
     p_models.set_defaults(func=cmd_models)

@@ -1,5 +1,5 @@
 # Model providers. Change this file to swap models; pipeline code stays the same.
-# Free/local defaults: RapidOCR for OCR, no VLM until one is configured.
+# Free/local defaults: RapidOCR for OCR, local Ollama for VLM.
 
 ocr:
   provider: rapidocr
@@ -12,10 +12,18 @@ ocr:
     - "仅供第二届北京市大学生人工智能创新大赛纸书智伴赛题参赛使用请勿外传"
 
 vlm:
-  # Set provider to openai_compatible after starting Ollama/LM Studio/vLLM,
-  # or after filling VLM_API_KEY for a hosted endpoint.
-  provider: null
-  fallback: [openai_compatible]
+  # Local Ollama first: nothing leaves the machine. If Ollama is not running
+  # or the vision model is not pulled, the stage degrades to manual (human
+  # written) narratives instead of failing.
+  provider: ollama
+  fallback: [openai_compatible, null]
+  ollama:
+    base_url: http://127.0.0.1:11434
+    model: qwen2.5vl:7b
+    timeout: 120
+    temperature: 0.1
+    keep_alive: 10m
+  # Any hosted / LM Studio / vLLM endpoint speaking the OpenAI shape.
   openai_compatible:
     base_url: http://127.0.0.1:11434/v1
     model: qwen2.5vl:7b

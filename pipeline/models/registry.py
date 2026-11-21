@@ -15,6 +15,7 @@ import yaml
 
 from .base import OCRProvider, VLMProvider
 from .null import NullOCR, NullVLM
+from .ollama_provider import OllamaProvider
 from .openai_compat import OpenAICompatibleVLM
 from .rapidocr_provider import RapidOCRProvider
 
@@ -65,6 +66,9 @@ def _make_ocr(name: str, section: dict[str, Any]) -> OCRProvider:
 
 
 def _make_vlm(name: str, section: dict[str, Any]) -> VLMProvider:
+    if name == "ollama":
+        opts = section.get("ollama", {}) or {}
+        return OllamaProvider(**opts)
     if name == "openai_compatible":
         opts = section.get("openai_compatible", {}) or {}
         return OpenAICompatibleVLM(**opts)
@@ -91,11 +95,27 @@ def build_vlm(config: dict[str, Any] | None = None) -> VLMProvider:
     return NullVLM()
 
 
+def _probe_status(
+    kind: str,
+    section: dict[str, Any],
+    factory: Any,
+) -> ProviderStatus:
+    """Report the configured provider, not the null fallback, with the reason."""
+    names = _provider_names(section)
+    detail = ""
+    for name in names:
+        provider = factory(name, section)
+        if provider.available():
+            return ProviderStatus(kind, provider.name, True, "")
+        if not detail:
+            # The primary provider's reason is the one worth reading.
+            detail = getattr(provider, "detail", "") or f"{name} unavailable"
+    return ProviderStatus(kind, names[0] if names else "null", False, detail)
+
+
 def status(config: dict[str, Any] | None = None) -> list[ProviderStatus]:
     cfg = config if config is not None else load_config()
-    ocr = build_ocr(cfg)
-    vlm = build_vlm(cfg)
     return [
-        ProviderStatus("ocr", ocr.name, ocr.available(), "" if ocr.available() else "not installed/configured"),
-        ProviderStatus("vlm", vlm.name, vlm.available(), "" if vlm.available() else "not configured"),
+        _probe_status("ocr", cfg.get("ocr", {}) or {}, _make_ocr),
+        _probe_status("vlm", cfg.get("vlm", {}) or {}, _make_vlm),
     ]

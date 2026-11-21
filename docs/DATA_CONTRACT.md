@@ -1115,6 +1115,7 @@ VLM 把页图读成文字后的产物。对无字绘本是唯一的内容来源�
 
 ```text
 docs/DATA_CONTRACT.md
+contracts/models.py
 backend/app/models.py
 后端接口样例
 前端类型定义
@@ -1122,3 +1123,22 @@ backend/app/models.py
 ```
 
 - `contracts/` 下的 JSON Schema 与本文同步；校验器以本文为准。
+
+### 14.3 代码落点
+
+本文是契约说明，`contracts/models.py` 是唯一的可执行事实源。改字段先改模型，再改本文。
+
+| 契约小节 | 模型 | 产出文件 | 消费方 |
+| --- | --- | --- | --- |
+| §3 书 | `BookPackage` / `Page` / `PageBlock` | `data/books/<id>/book.json` | `pipeline/ingest.py`、`backend/app/ingest.py` |
+| §5 题目 | `QuerySet` / `QueryItem` / `QueryAction` | `data/books/<id>/query_sets/<id>.json` | `pipeline/query_sets.py`、`backend/app/script_parser.py` |
+| §6 知识层 | `PageFact` / `QaCard` / `Alias` / `Narrative` | `data/books/<id>/derived/knowledge/*.jsonl` | 检索与问答 |
+| §6.4 叙述 | `Narrative` | `data/books/<id>/derived/understanding/narrative.jsonl` | `pipeline/narrative.py` |
+| §7 人工修正 | `Annotation` / `ReviewItem` | `data/books/<id>/manual/annotations.jsonl` | `pipeline/manual.py`、审核页 |
+| §8 生成产物 | `StoryPlan` / `ScenePlan` / `Scene` / `VideoSegment` / `BookGenerationResult` / `GenerationManifest` / `Trace` | `data/books/<id>/derived/{story,scene,video}/` | 播放器、`/api/interact` |
+| §9 交互协议 | `InteractionRequest` / `InteractionResponse` / `Turn` | 请求响应体 | C 的播放器、`/api/interact` |
+| §10 Job | `Job` | `data/jobs/<job_id>.json` | `backend/app/jobs.py` |
+| §11 能力报告 | `CapabilityReport` | `data/books/<id>/derived/capability.json` | `/api/books/<id>/capability` |
+| §12 评测 | `EvalCase` / `EvalRun` / `EvalResult` | `runs/<run_id>/results.jsonl` | 评测 runner |
+
+前端类型在 `contracts/book_api.ts`，与本文和 `contracts/models.py` 同步维护。
