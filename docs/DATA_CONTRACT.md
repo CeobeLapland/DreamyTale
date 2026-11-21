@@ -6,19 +6,21 @@
 
 当前后端导入器已经能够生成：
 
-- `book_id`、`source_name`、`language` 和页面数量。
+- `schema_version`、`book_id`、`source_name`、`title`、`language` 和页面数量。
 - 页面列表、页面图路径、PDF 文本、PDF 尺寸和 PNG 像素尺寸。
+- 页面 `text_source`、空 `text_spans` 和空 `hotspots` 数组。
 - 50 个脚本步骤、步骤级必选标记、动作类型和点击目标名称。
+- 步骤内每个动作的唯一 `action_id`。
 - 按脚本编号映射的音频路径。
 
-以下字段已经列入目标契约，但当前导入器尚未输出：
+以下能力已经实现接口和状态模型，但尚未接入具体模型：
 
-- `schema_version` 和展示用 `title`。
-- `Page.text_source`、`text_spans` 和 `hotspots`。
-- `Action.action_id`。
-- Scene 时间轴、Job 状态和问答接口结果。
+- 文件型 Job 状态、进度、失败信息和后台任务线程。
+- 书单、单书详情、单书静态资源、生成任务和 Job 查询 API。
+- Scene 时间轴的数据模型。
+- 问答接口入口；ASR、检索、LLM 和 TTS 适配器尚未接入。
 
-在实现统一 API 前，A 必须先把当前 `book.json` 迁移到本文档定义的结构；在此之前，不得把当前测试输出当作最终接口格式。
+空 `text_spans` 和空 `hotspots` 是合法的契约初始值，OCR/VLM 接入后再填充真实坐标。生成和问答接口不得用占位答案伪装成功。
 
 ## 1. 基本原则
 
@@ -290,7 +292,7 @@
   "job_id": "job-zh01-20261116-001",
   "book_id": "zh-01",
   "status": "running",
-  "stage": "video_generation",
+  "stage": "video",
   "progress": 0.45,
   "created_at": "2026-11-16T08:30:00Z",
   "updated_at": "2026-11-16T08:31:20Z",
