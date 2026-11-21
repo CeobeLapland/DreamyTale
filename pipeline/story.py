@@ -324,6 +324,26 @@ def run_story(spec: BookSpec, llm: Any) -> dict[str, Any]:
     book_path = DATA / spec.book_id / "book.json"
     if not book_path.exists():
         raise FileNotFoundError(book_path)
+    out_dir = DATA / spec.book_id / "derived" / "story"
+    plan_path = out_dir / "story_plan.json"
+    available = llm.available()
+    if not available and plan_path.is_file():
+        # Never replace a good plan with the fallback version: the fallback is
+        # for a missing model, not for a plan that was already written.
+        return {
+            "book_id": spec.book_id,
+            "model": getattr(llm, "model", ""),
+            "available": False,
+            "skipped": True,
+            "reason": "llm_unavailable_keeping_existing_plan",
+            "plan_path": str(plan_path),
+            "pages_llm": 0,
+            "pages_fallback": 0,
+            "characters": 0,
+            "beats": 0,
+            "errors": [],
+            "seconds": 0.0,
+        }
     book = BookPackage.model_validate(json.loads(book_path.read_text(encoding="utf-8")))
 
     narratives = {
@@ -341,7 +361,6 @@ def run_story(spec: BookSpec, llm: Any) -> dict[str, Any]:
         }
 
     started = time.perf_counter()
-    available = llm.available()
     report: dict[str, Any] = {
         "book_id": spec.book_id,
         "model": getattr(llm, "model", ""),
@@ -425,9 +444,7 @@ def run_story(spec: BookSpec, llm: Any) -> dict[str, Any]:
         created_at=_now(),
     )
 
-    out_dir = DATA / spec.book_id / "derived" / "story"
     out_dir.mkdir(parents=True, exist_ok=True)
-    plan_path = out_dir / "story_plan.json"
     plan_path.write_text(
         json.dumps(plan.model_dump(mode="json"), ensure_ascii=False, indent=2),
         encoding="utf-8",

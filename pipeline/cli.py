@@ -205,9 +205,12 @@ def cmd_story(args: argparse.Namespace) -> int:
     llm = build_llm()
     print(f"llm provider: {llm.name} model={getattr(llm, 'model', '')}")
     if not llm.available():
-        print("warning: no LLM available; story falls back to the original page text")
+        print("warning: no LLM available; existing plans are kept, new books fall back to the page text")
     for spec in specs:
         report = run_story(spec, llm)
+        if report.get("skipped"):
+            print(f"  {spec.book_id}: skipped ({report['reason']}); existing plan kept")
+            continue
         print(
             f"  {spec.book_id}: llm_pages={report['pages_llm']} "
             f"fallback_pages={report['pages_fallback']} "
