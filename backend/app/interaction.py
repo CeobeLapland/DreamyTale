@@ -7,8 +7,13 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
+from pathlib import Path
+
+from contracts.retrieval import find_scene as _find_scene
+from contracts.retrieval import search_index as _search_index
 
 from backend.app.models import (
     ActionType,
@@ -29,6 +34,22 @@ from backend.app.models import (
     TextSpan,
 )
 from backend.app.script_parser import classify_instruction, control_action_for
+
+INDEX_DIR = Path("derived") / "index"
+
+
+def _load_index(package_root: Path | None, name: str) -> dict:
+    """读 pipeline 产出的索引；没有索引时返回空结构。"""
+    if package_root is None:
+        return {}
+    path = package_root / INDEX_DIR / name
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 # 每个 kind 退化时给用户看的说明；写清楚"缺什么"，不要伪装成答案。
@@ -163,6 +184,7 @@ def _response(
 def handle_interaction(
     request: InteractionRequest,
     package: BookPackage | None,
+    package_root: Path | None = None,
 ) -> InteractionResponse:
     """把一次交互请求变成契约 §9.2 的响应。"""
     started = time.perf_counter()
@@ -208,6 +230,39 @@ def handle_interaction(
 
     if kind in {InteractionKind.search, InteractionKind.highlight}:
         target = text
+        entries = _search_index(_load_index(package_root, "search_index.json"), target)
+        if entries:
+            evidence = [
+                Evidence(
+                    page_index=int(entry.get("page_index") or 0),
+                    bbox_px=tuple(entry["bbox_px"]) if entry.get("bbox_px") else None,
+                    span_id=entry.get("span_id") or entry.get("entry_id"),
+                    quote=str(entry.get("text") or ""),
+                )
+                for entry in entries[:3]
+            ]
+            span_ids = [
+                str(entry.get("entry_id"))
+                for entry in entries
+                if entry.get("kind") == "span"
+            ]
+            return _response(
+                request,
+                kind,
+                request_id=request_id,
+                action=InteractionAction(type=ActionType.highlight, span_ids=span_ids),
+                answer=AnswerPayload(
+                    text=str(entries[0].get("text") or ""),
+                    language=package.language if package else None,
+                    tier=AnswerTier.quote,
+                    evidence=evidence,
+                    scene_id=entries[0].get("scene_id"),
+                    time_ms=entries[0].get("start_ms"),
+                ),
+                status="ok",
+                route_ms=int((time.perf_counter() - route_started) * 1000),
+                total_ms=int((time.perf_counter() - started) * 1000),
+            )
         if package is not None:
             hits = _find_text(package, target)
             if hits:
@@ -239,6 +294,43 @@ def handle_interaction(
                     route_ms=int((time.perf_counter() - route_started) * 1000),
                     total_ms=int((time.perf_counter() - started) * 1000),
                 )
+        return _fallback(
+            request,
+            kind,
+            request_id=request_id,
+            route_ms=int((time.perf_counter() - route_started) * 1000),
+            total_ms=int((time.perf_counter() - started) * 1000),
+        )
+
+    if kind is InteractionKind.seek:
+        scene = _find_scene(_load_index(package_root, "scene_index.json"), text)
+        if scene:
+            return _response(
+                request,
+                kind,
+                request_id=request_id,
+                action=InteractionAction(
+                    type=ActionType.seek,
+                    scene_id=str(scene.get("scene_id") or ""),
+                    time_ms=int(scene.get("start_ms") or 0),
+                ),
+                answer=AnswerPayload(
+                    text=str(scene.get("caption") or ""),
+                    language=package.language if package else None,
+                    tier=AnswerTier.quote,
+                    evidence=[
+                        Evidence(
+                            page_index=int(scene.get("page_index") or 0),
+                            quote=str(scene.get("caption") or ""),
+                        )
+                    ],
+                    scene_id=str(scene.get("scene_id") or ""),
+                    time_ms=int(scene.get("start_ms") or 0),
+                ),
+                status="ok",
+                route_ms=int((time.perf_counter() - route_started) * 1000),
+                total_ms=int((time.perf_counter() - started) * 1000),
+            )
         return _fallback(
             request,
             kind,

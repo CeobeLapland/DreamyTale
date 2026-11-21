@@ -45,6 +45,10 @@ class BookStore:
             raise BookNotFoundError(f"invalid book id: {book_id}")
         return self.root / book_id
 
+    def package_root(self, book_id: str) -> Path:
+        """Directory of one book package; the pipeline writes its artifacts here."""
+        return self._package_root(book_id)
+
     def list_book_ids(self) -> list[str]:
         return sorted(
             path.parent.name

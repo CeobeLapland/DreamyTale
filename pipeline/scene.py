@@ -56,7 +56,7 @@ def _seed_for(scene_id: str) -> int:
     return int(digest[:8], 16)
 
 
-def _aliases(entities: list[str], caption: str, narration: str) -> list[str]:
+def _aliases(entities: list[str], caption: str, narration: str, keywords: list[str] | None = None) -> list[str]:
     """Short phrases a user might say when asking to jump to this moment."""
     aliases: list[str] = []
 
@@ -65,6 +65,8 @@ def _aliases(entities: list[str], caption: str, narration: str) -> list[str]:
         if text and text not in aliases and len(text) <= 24:
             aliases.append(text)
 
+    for keyword in keywords or []:
+        add(str(keyword))
     for entity in entities:
         add(entity)
     for source in (caption, narration):
@@ -106,10 +108,12 @@ def build_scene_plan(
     book: BookPackage,
     story: StoryPlan,
     plan_version: int = 1,
+    keywords: dict[str, list[str]] | None = None,
 ) -> ScenePlan:
     scenes: list[Scene] = []
     page_map: list[PageMap] = []
     pages_by_index = {page.index: page for page in book.pages}
+    keyword_map = keywords or {}
 
     for page_story in story.pages:
         page = pages_by_index.get(page_story.page_index)
@@ -134,7 +138,12 @@ def build_scene_plan(
                     start_ms=start_ms,
                     end_ms=end_ms,
                     caption=caption,
-                    aliases=_aliases(beat.entities, caption, beat.narration),
+                    aliases=_aliases(
+                        beat.entities,
+                        caption,
+                        beat.narration,
+                        keyword_map.get(beat.beat_id),
+                    ),
                     entities=list(beat.entities),
                     action=beat.description,
                     camera=CAMERA_MOVES[(index - 1) % len(CAMERA_MOVES)],
@@ -239,14 +248,23 @@ def build_timeline(book: BookPackage, plan: ScenePlan) -> dict[str, Any]:
 def run_scene(spec: BookSpec) -> dict[str, Any]:
     book_path = DATA / spec.book_id / "book.json"
     story_path = DATA / spec.book_id / "derived" / "story" / "story_plan.json"
+    keyword_path = DATA / spec.book_id / "derived" / "story" / "beat_keywords.json"
     if not book_path.exists():
         raise FileNotFoundError(book_path)
     if not story_path.exists():
         raise FileNotFoundError(story_path)
     book = BookPackage.model_validate(json.loads(book_path.read_text(encoding="utf-8")))
     story = StoryPlan.model_validate(json.loads(story_path.read_text(encoding="utf-8")))
+    keywords: dict[str, list[str]] = {}
+    if keyword_path.is_file():
+        try:
+            raw = json.loads(keyword_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            raw = {}
+        if isinstance(raw, dict):
+            keywords = {str(key): list(value) for key, value in raw.items() if isinstance(value, list)}
 
-    plan = build_scene_plan(book, story)
+    plan = build_scene_plan(book, story, keywords=keywords)
     out_dir = DATA / spec.book_id / "derived" / "scene"
     out_dir.mkdir(parents=True, exist_ok=True)
     plan_path = out_dir / "scene_plan.json"

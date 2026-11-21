@@ -22,6 +22,7 @@ from contracts.validate import main as validate_main
 from .config import BOOKS, DATA, DEFAULT_DPI, find_book
 from .coverage import analyze_all
 from .ingest import ingest_book, ingest_pdf
+from .index import build_index
 from .manual import auto_narrative_records, seed_narrative_corrections
 from .models import build_llm, build_ocr, build_vlm, config_path, status as provider_status
 from .narrative import run_vlm_all
@@ -227,6 +228,19 @@ def cmd_scene(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_index(args: argparse.Namespace) -> int:
+    specs = _select(args)
+    if not specs:
+        raise SystemExit("select --all or --book")
+    for spec in specs:
+        report = build_index(spec)
+        print(
+            f"  {spec.book_id}: entries={report['entries']} scenes={report['scenes']} "
+            f"-> {report['search_index_path']}"
+        )
+    return 0
+
+
 def cmd_models(_args: argparse.Namespace) -> int:
     print(f"config: {config_path()}")
     print(f"ocr provider: {build_ocr().name}")
@@ -304,6 +318,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_scene = sub.add_parser("scene", help="StoryPlan -> ScenePlan + timeline")
     add_selection(p_scene)
     p_scene.set_defaults(func=cmd_scene)
+
+    p_index = sub.add_parser("index", help="build the search index and the scene index")
+    add_selection(p_index)
+    p_index.set_defaults(func=cmd_index)
 
     p_models = sub.add_parser("models", help="show configured OCR/VLM providers")
     p_models.set_defaults(func=cmd_models)

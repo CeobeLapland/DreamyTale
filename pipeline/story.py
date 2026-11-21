@@ -94,9 +94,10 @@ BEAT_SCHEMA: dict[str, Any] = {
                         },
                     },
                     "entities": {"type": "array", "items": {"type": "string"}},
+                    "keywords": {"type": "array", "items": {"type": "string"}},
                     "duration_ms": {"type": "integer"},
                 },
-                "required": ["description", "narration"],
+                "required": ["description", "narration", "keywords"],
             },
         }
     },
@@ -205,11 +206,18 @@ def _clean_beats(
     page_index: int,
     raw: Any,
     fallback: list[Beat],
-) -> list[Beat]:
+) -> tuple[list[Beat], dict[str, list[str]]]:
+    """Return the beats and the keywords per beat.
+
+    The keywords are not part of the contract's Beat model; they are how a
+    child would ask for this moment, and they become the scene aliases that
+    make `seek` work.
+    """
     items = raw.get("beats") if isinstance(raw, dict) else None
     if not isinstance(items, list) or not items:
-        return fallback
+        return fallback, {}
     beats: list[Beat] = []
+    keywords: dict[str, list[str]] = {}
     for index, item in enumerate(items[:MAX_BEATS_PER_PAGE], start=1):
         if not isinstance(item, dict):
             continue
@@ -229,9 +237,10 @@ def _clean_beats(
             duration = int(item.get("duration_ms") or DEFAULT_DURATION_MS)
         except (TypeError, ValueError):
             duration = DEFAULT_DURATION_MS
+        beat_id = f"beat-{book_id}-{page_index:03d}-{index:02d}"
         beats.append(
             Beat(
-                beat_id=f"beat-{book_id}-{page_index:03d}-{index:02d}",
+                beat_id=beat_id,
                 description=description or narration,
                 narration=narration or description,
                 dialogues=dialogues,
@@ -239,7 +248,10 @@ def _clean_beats(
                 duration_ms=max(3000, min(duration, 15000)),
             )
         )
-    return beats or fallback
+        keywords[beat_id] = _clean_list(item.get("keywords"), 4)
+    if not beats:
+        return fallback, {}
+    return beats, keywords
 
 
 def _book_plan_prompt(book: BookPackage, digest: str, language: str) -> str:
@@ -283,6 +295,8 @@ def _page_plan_prompt(
         "- narration：这一页的旁白，可以直接朗读；\n"
         "- dialogues：角色台词，没有就给空数组；\n"
         "- entities：这一页出现的实体；\n"
+        "- keywords：2-4 个孩子会怎么描述这一刻的短语（比如“城堡晃动”“两人吵架”），"
+        "用来让语音指令能定位到这一段；\n"
         "- duration_ms：这一段大约多少毫秒（建议 6000）。\n"
         "只写画面里有的东西，不要编造。\n"
         f"{_language_rule(language)}\n"
@@ -342,6 +356,7 @@ def run_story(spec: BookSpec, llm: Any) -> dict[str, Any]:
     style = _clean_style(book_data.get("style_bible"))
 
     pages: list[PageStory] = []
+    keyword_map: dict[str, list[str]] = {}
     previous_state: str | None = None
     for page in book.pages:
         narrative = str(narratives.get(page.index, {}).get("text") or "").strip()
@@ -363,7 +378,8 @@ def run_story(spec: BookSpec, llm: Any) -> dict[str, Any]:
                     ),
                     json_schema=BEAT_SCHEMA,
                 )
-                beats = _clean_beats(spec.book_id, page.index, result.data, fallback)
+                beats, keywords = _clean_beats(spec.book_id, page.index, result.data, fallback)
+                keyword_map.update(keywords)
             except Exception as exc:  # noqa: BLE001
                 report["errors"].append(
                     {"page_index": page.index, "error": f"{type(exc).__name__}: {exc}"}
@@ -406,6 +422,11 @@ def run_story(spec: BookSpec, llm: Any) -> dict[str, Any]:
     plan_path.write_text(
         json.dumps(plan.model_dump(mode="json"), ensure_ascii=False, indent=2),
         encoding="utf-8",
+    )
+    # Keywords are not part of the contract's Beat model; the scene stage reads
+    # them to build the aliases that make `seek` work.
+    (out_dir / "beat_keywords.json").write_text(
+        json.dumps(keyword_map, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     report["seconds"] = round(time.perf_counter() - started, 2)
     report["plan_path"] = str(plan_path)

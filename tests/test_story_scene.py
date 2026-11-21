@@ -147,12 +147,13 @@ class CleanTests(unittest.TestCase):
 
     def test_beats_fall_back_when_model_returns_nothing(self) -> None:
         fallback = _fallback_beats("zh-01", 1, "原文文字", "画面文字", ["小满"])
-        beats = _clean_beats("zh-01", 1, None, fallback)
+        beats, keywords = _clean_beats("zh-01", 1, None, fallback)
         self.assertEqual(beats, fallback)
+        self.assertEqual(keywords, {})
 
     def test_beats_are_cleaned(self) -> None:
         fallback = _fallback_beats("zh-01", 1, "原文", "", [])
-        beats = _clean_beats(
+        beats, keywords = _clean_beats(
             "zh-01",
             1,
             {
@@ -162,6 +163,7 @@ class CleanTests(unittest.TestCase):
                         "narration": "我们一起搭城堡",
                         "dialogues": [{"speaker": "小满", "text": "搭高高"}],
                         "entities": ["小满", "小满", ""],
+                        "keywords": ["搭积木", "城堡"],
                         "duration_ms": 999999,
                     }
                 ]
@@ -172,6 +174,7 @@ class CleanTests(unittest.TestCase):
         self.assertEqual(beats[0].entities, ["小满"])
         self.assertEqual(beats[0].duration_ms, 15000)
         self.assertEqual(beats[0].dialogues[0].speaker, "小满")
+        self.assertEqual(keywords["beat-zh-01-001-01"], ["搭积木", "城堡"])
 
     def test_model_result_data_is_used(self) -> None:
         result = VLMResult(text="{}", data={"beats": []})
@@ -196,6 +199,15 @@ class ScenePlanTests(unittest.TestCase):
         self.assertTrue(scene.video_path.endswith(".mp4"))
         self.assertTrue(scene.keyframe_path.endswith(".png"))
         self.assertIn("小满", scene.prompt)
+
+    def test_keywords_become_aliases(self) -> None:
+        plan = build_scene_plan(
+            BOOK,
+            make_story(),
+            keywords={"beat-zh-01-001-01": ["城堡晃动", "两人吵架"]},
+        )
+        self.assertEqual(plan.scenes[0].aliases[0], "城堡晃动")
+        self.assertIn("两人吵架", plan.scenes[0].aliases)
 
     def test_timeline_is_absolute(self) -> None:
         plan = build_scene_plan(BOOK, make_story())

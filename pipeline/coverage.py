@@ -1,7 +1,9 @@
 """Check how much of a QuerySet can be resolved from the ingested book.
 
-This is deliberately model-free: it answers "do we already have the text/hotspot
-needed to execute this query?" before OCR/VLM/annotation work starts.
+The book text layer comes first, but the search index (PDF text + OCR + VLM
+visible text + scene subtitles) and the scene index are consulted too, so the
+report says what the system can really answer today, not what the raw PDF
+happens to contain.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import DATA, BookSpec
+from .index import find_scene, search_entries
 
 
 def _norm(text: str) -> str:
@@ -65,6 +68,13 @@ def analyze(spec: BookSpec) -> dict[str, Any]:
             if kind in {"search", "highlight"}:
                 target = action.get("search_text") or action.get("highlight_text")
                 hits = _find_text(pages, target or "")
+                if not hits:
+                    # The PDF text layer is not the only source: the VLM read the
+                    # pictures and the scenes carry the narration.
+                    hits = [
+                        int(entry.get("page_index") or 0)
+                        for entry in search_entries(spec.book_id, target or "")
+                    ]
                 if hits:
                     resolved += 1
                     bucket["resolved"] += 1
@@ -103,17 +113,22 @@ def analyze(spec: BookSpec) -> dict[str, Any]:
                         }
                     )
             elif kind == "seek":
-                needs_scene_plan += 1
-                bucket["unresolved"] += 1
-                unresolved.append(
-                    {
-                        "number": item["number"],
-                        "kind": kind,
-                        "instruction": item["instruction"],
-                        "target": action.get("seek_query"),
-                        "reason": "needs_scene_plan",
-                    }
-                )
+                scene = find_scene(spec.book_id, action.get("seek_query") or "")
+                if scene:
+                    resolved += 1
+                    bucket["resolved"] += 1
+                else:
+                    needs_scene_plan += 1
+                    bucket["unresolved"] += 1
+                    unresolved.append(
+                        {
+                            "number": item["number"],
+                            "kind": kind,
+                            "instruction": item["instruction"],
+                            "target": action.get("seek_query"),
+                            "reason": "needs_scene_plan",
+                        }
+                    )
             elif kind == "qa":
                 needs_qa_cards += 1
                 bucket["unresolved"] += 1

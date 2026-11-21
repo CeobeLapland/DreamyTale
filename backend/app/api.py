@@ -285,7 +285,7 @@ def get_job(job_id: str) -> dict[str, object]:
 def interact(request: InteractionRequest) -> InteractionResponse:
     """v2 交互协议入口：没有 ASR/LLM/TTS 的部分一律返回 fallback，不伪造成功。"""
     package = books.load(request.book_id)
-    return handle_interaction(request, package)
+    return handle_interaction(request, package, books.package_root(request.book_id))
 
 
 @app.post("/api/qa", response_model=InteractionResponse)
@@ -294,7 +294,11 @@ def qa(request: InteractionRequest) -> InteractionResponse:
     payload = request.model_dump()
     payload["kind"] = InteractionKind.qa
     package = books.load(request.book_id)
-    return handle_interaction(InteractionRequest.model_validate(payload), package)
+    return handle_interaction(
+        InteractionRequest.model_validate(payload),
+        package,
+        books.package_root(request.book_id),
+    )
 
 
 def _record_capabilities_path(package_root: Path, relative: str) -> None:
