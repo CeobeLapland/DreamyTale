@@ -23,10 +23,12 @@ from .config import BOOKS, DATA, DEFAULT_DPI, find_book
 from .coverage import analyze_all
 from .ingest import ingest_book, ingest_pdf
 from .manual import auto_narrative_records, seed_narrative_corrections
-from .models import build_ocr, build_vlm, config_path, status as provider_status
+from .models import build_llm, build_ocr, build_vlm, config_path, status as provider_status
 from .narrative import run_vlm_all
 from .query_sets import parse_script
 from .review import render_overlay
+from .scene import run_scene
+from .story import run_story
 from .understanding import run_ocr_all
 
 
@@ -193,6 +195,38 @@ def cmd_vlm_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_story(args: argparse.Namespace) -> int:
+    specs = _select(args)
+    if not specs:
+        raise SystemExit("select --all or --book")
+    llm = build_llm()
+    print(f"llm provider: {llm.name} model={getattr(llm, 'model', '')}")
+    if not llm.available():
+        print("warning: no LLM available; story falls back to the original page text")
+    for spec in specs:
+        report = run_story(spec, llm)
+        print(
+            f"  {spec.book_id}: llm_pages={report['pages_llm']} "
+            f"fallback_pages={report['pages_fallback']} "
+            f"characters={report['characters']} beats={report['beats']} "
+            f"errors={len(report['errors'])} {report['seconds']}s"
+        )
+    return 0
+
+
+def cmd_scene(args: argparse.Namespace) -> int:
+    specs = _select(args)
+    if not specs:
+        raise SystemExit("select --all or --book")
+    for spec in specs:
+        report = run_scene(spec)
+        print(
+            f"  {spec.book_id}: pages={report['pages']} scenes={report['scenes']} "
+            f"total={report['total_ms']}ms -> {report['plan_path']}"
+        )
+    return 0
+
+
 def cmd_models(_args: argparse.Namespace) -> int:
     print(f"config: {config_path()}")
     print(f"ocr provider: {build_ocr().name}")
@@ -262,6 +296,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_check.add_argument("--page", type=int, help="page index (default: first page)")
     p_check.add_argument("--prompt", help="override the test prompt")
     p_check.set_defaults(func=cmd_vlm_check)
+
+    p_story = sub.add_parser("story", help="BookPackage + narratives -> StoryPlan")
+    add_selection(p_story)
+    p_story.set_defaults(func=cmd_story)
+
+    p_scene = sub.add_parser("scene", help="StoryPlan -> ScenePlan + timeline")
+    add_selection(p_scene)
+    p_scene.set_defaults(func=cmd_scene)
 
     p_models = sub.add_parser("models", help="show configured OCR/VLM providers")
     p_models.set_defaults(func=cmd_models)

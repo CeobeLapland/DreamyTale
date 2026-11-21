@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 
 from .base import OCRProvider, VLMProvider
+from .llm import ChatLLM
 from .null import NullOCR, NullVLM
 from .ollama_provider import OllamaProvider
 from .openai_compat import OpenAICompatibleVLM
@@ -75,6 +76,13 @@ def _make_vlm(name: str, section: dict[str, Any]) -> VLMProvider:
     return NullVLM()
 
 
+def _make_llm(name: str, section: dict[str, Any]) -> ChatLLM:
+    if name == "openai_compatible":
+        opts = section.get("openai_compatible", {}) or {}
+        return ChatLLM(**opts)
+    return ChatLLM(base_url="", model="")
+
+
 def build_ocr(config: dict[str, Any] | None = None) -> OCRProvider:
     cfg = config if config is not None else load_config()
     section = cfg.get("ocr", {}) or {}
@@ -93,6 +101,16 @@ def build_vlm(config: dict[str, Any] | None = None) -> VLMProvider:
         if provider.available():
             return provider
     return NullVLM()
+
+
+def build_llm(config: dict[str, Any] | None = None) -> ChatLLM:
+    cfg = config if config is not None else load_config()
+    section = cfg.get("llm", {}) or {}
+    for name in _provider_names(section):
+        provider = _make_llm(name, section)
+        if provider.available():
+            return provider
+    return ChatLLM(base_url="", model="")
 
 
 def _probe_status(
@@ -118,4 +136,5 @@ def status(config: dict[str, Any] | None = None) -> list[ProviderStatus]:
     return [
         _probe_status("ocr", cfg.get("ocr", {}) or {}, _make_ocr),
         _probe_status("vlm", cfg.get("vlm", {}) or {}, _make_vlm),
+        _probe_status("llm", cfg.get("llm", {}) or {}, _make_llm),
     ]

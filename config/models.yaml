@@ -41,7 +41,19 @@ vlm:
     keep_alive: 10m
 
 # Future stages use the same pattern:
-# llm:   { provider: openai_compatible, ... }
 # tts:   { provider: edge_tts }
 # asr:   { provider: faster_whisper }
 # i2v:   { provider: null }
+
+# Story and scene planning: text only, same local endpoint as the VLM.
+llm:
+  provider: openai_compatible
+  fallback: [null]
+  openai_compatible:
+    base_url: http://127.0.0.1:1234/v1
+    model: qwen/qwen3.5-9b
+    api_key_env: LLM_API_KEY
+    timeout: 240
+    max_tokens: 900
+    temperature: 0.2
+    reasoning_effort: none
