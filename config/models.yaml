@@ -12,24 +12,33 @@ ocr:
     - "仅供第二届北京市大学生人工智能创新大赛纸书智伴赛题参赛使用请勿外传"
 
 vlm:
-  # Local Ollama first: nothing leaves the machine. If Ollama is not running
-  # or the vision model is not pulled, the stage degrades to manual (human
-  # written) narratives instead of failing.
-  provider: ollama
-  fallback: [openai_compatible, null]
+  # Local LM Studio first: nothing leaves the machine. If it is not running,
+  # the stage degrades to manual (human written) narratives instead of failing.
+  provider: openai_compatible
+  fallback: [ollama, null]
+  # LM Studio, local server on 1234. qwen3.5-9b is the multimodal build
+  # (it ships a mmproj), so one model serves both page understanding and the
+  # story/scene text work.
+  openai_compatible:
+    base_url: http://127.0.0.1:1234/v1
+    model: qwen/qwen3.5-9b
+    api_key_env: LMSTUDIO_API_KEY
+    timeout: 240
+    max_tokens: 768
+    temperature: 0.1
+    # qwen3.5 是推理模型，默认会把 token 全花在 thinking 上并返回空答案；
+    # 关掉推理后单页从 47s 降到 4s。
+    reasoning_effort: none
+    # Page PNGs are ~2600px wide; 1024 keeps the vision tokens (and VRAM)
+    # small enough for a laptop.
+    max_side: 1024
+  # Ollama is the fallback if LM Studio is not up.
   ollama:
     base_url: http://127.0.0.1:11434
     model: qwen2.5vl:7b
     timeout: 120
     temperature: 0.1
     keep_alive: 10m
-  # Any hosted / LM Studio / vLLM endpoint speaking the OpenAI shape.
-  openai_compatible:
-    base_url: http://127.0.0.1:11434/v1
-    model: qwen2.5vl:7b
-    api_key_env: VLM_API_KEY
-    timeout: 120
-    max_tokens: 1024
 
 # Future stages use the same pattern:
 # llm:   { provider: openai_compatible, ... }

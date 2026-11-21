@@ -18,17 +18,35 @@ from typing import Any
 from contracts.models import BookPackage, Status, content_hash
 
 from .config import DATA, BookSpec
+from .ingest import _is_watermark
 from .manual import load_narrative_corrections
 from .models.base import VLMProvider, VLMResult
 from .models.null import NullVLM
+from .models.registry import load_config
+from .models.openai_compat import extract_json
+from .understanding import _looks_like_watermark
 
-PROMPT = """You are reading one page of a children's picture book.
+PROMPT_ZH = """You are reading one page of a children's picture book.
 Describe only what is visible on this page. Do not invent events from other pages.
 Return JSON with exactly these keys:
-- "text": 80-150 Chinese characters (or 50-100 English words): who, where, what they are doing, and the mood.
+- "text": 80-150 Chinese characters: who, where, what they are doing, and the mood.
 - "entities": names and important objects as written in the book.
 - "visible_text": printed or handwritten words visible on the page, verbatim; [] if none.
 Return JSON only."""
+
+PROMPT_EN = """You are reading one page of a children's picture book.
+Describe only what is visible on this page. Do not invent events from other pages.
+Return JSON with exactly these keys:
+- "text": 50-100 English words: who, where, what they are doing, and the mood.
+- "entities": names and important objects as written in the book.
+- "visible_text": printed or handwritten words visible on the page, verbatim; [] if none.
+Return JSON only."""
+
+
+def _prompt_for(language: str) -> str:
+    """The narrative has to be in the book's language: English books are asked
+    in English, otherwise a Chinese description cannot answer an English query."""
+    return PROMPT_EN if str(language).lower().startswith("en") else PROMPT_ZH
 
 SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -48,10 +66,9 @@ def _now() -> datetime:
 def parse_narrative(result: VLMResult) -> dict[str, Any]:
     data = result.data
     if data is None:
-        try:
-            data = json.loads(result.text)
-        except json.JSONDecodeError:
-            data = {"text": result.text.strip(), "entities": [], "visible_text": []}
+        data = extract_json(result.text)
+    if not isinstance(data, dict):
+        data = {"text": result.text.strip(), "entities": [], "visible_text": []}
     text = str(data.get("text", "")).strip()
     entities = [str(x).strip() for x in data.get("entities", []) or [] if str(x).strip()]
     visible_text = [str(x).strip() for x in data.get("visible_text", []) or [] if str(x).strip()]
@@ -77,6 +94,17 @@ def _read_records(path: Path) -> list[dict[str, Any]]:
 
 def _superseded(record: dict[str, Any]) -> dict[str, Any]:
     return {**record, "status": Status.superseded.value}
+
+
+def _drop_watermarks(lines: list[str]) -> list[str]:
+    """The competition watermark is printed on every page; it is not story text."""
+    phrases = list((load_config().get("ocr", {}) or {}).get("watermark_phrases", []) or [])
+    kept: list[str] = []
+    for line in lines:
+        if _is_watermark(line) or _looks_like_watermark(line, phrases):
+            continue
+        kept.append(line)
+    return kept
 
 
 def build_page_records(
@@ -159,6 +187,7 @@ def run_vlm(spec: BookSpec, provider: VLMProvider) -> dict[str, Any]:
     }
 
     records: list[dict[str, Any]] = []
+    prompt = _prompt_for(book.language)
     for page in book.pages:
         old = previous.get(page.index)
         correction = corrections.get(page.index)
@@ -175,7 +204,7 @@ def run_vlm(spec: BookSpec, provider: VLMProvider) -> dict[str, Any]:
                 report["errors"].append({"page_index": page.index, "error": "missing_page_image"})
                 continue
             try:
-                result = provider.describe(image_path, PROMPT, json_schema=SCHEMA)
+                result = provider.describe(image_path, prompt, json_schema=SCHEMA)
             except Exception as exc:  # noqa: BLE001
                 report["errors"].append({"page_index": page.index, "error": f"{type(exc).__name__}: {exc}"})
                 continue
@@ -183,6 +212,7 @@ def run_vlm(spec: BookSpec, provider: VLMProvider) -> dict[str, Any]:
             if not parsed["text"]:
                 report["errors"].append({"page_index": page.index, "error": "empty_narrative"})
                 continue
+            parsed["visible_text"] = _drop_watermarks(parsed["visible_text"])
             auto = parsed
 
         records.extend(build_page_records(page.index, spec.book_id, correction, auto, old))

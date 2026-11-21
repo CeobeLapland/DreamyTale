@@ -10,6 +10,7 @@ from unittest import mock
 
 from pipeline import manual
 from pipeline.models.ollama_provider import OllamaProvider
+from pipeline.models.openai_compat import extract_json
 from pipeline.models.registry import _make_vlm, build_vlm, status
 from pipeline.narrative import build_page_records
 
@@ -112,6 +113,29 @@ class PageRecordTests(unittest.TestCase):
         records = build_page_records(2, "zh-01", None, None, old)
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["status"], "active")
+
+
+class ExtractJsonTests(unittest.TestCase):
+    def test_plain_json(self) -> None:
+        parsed = extract_json('{"text": "hi", "entities": []}')
+        self.assertEqual(parsed["text"], "hi")
+
+    def test_markdown_fence(self) -> None:
+        parsed = extract_json('```json\n{"text": "hi"}\n```')
+        self.assertEqual(parsed["text"], "hi")
+
+    def test_curly_quote_used_as_delimiter(self) -> None:
+        raw = '{\n  "visible_text": [\n    \u201c我不要和小满玩！\u201d,\n    \u201c我也不和花花玩！\u201d\n  ]\n}'
+        parsed = extract_json(raw)
+        self.assertEqual(parsed["visible_text"], ["我不要和小满玩！", "我也不和花花玩！"])
+
+    def test_curly_quote_inside_content_is_kept(self) -> None:
+        raw = '{"text": "他说：“你好”"}'
+        parsed = extract_json(raw)
+        self.assertEqual(parsed["text"], "他说：“你好”")
+
+    def test_not_json(self) -> None:
+        self.assertIsNone(extract_json("就是一段描述，没有 JSON"))
 
 
 class OllamaProviderTests(unittest.TestCase):

@@ -11,12 +11,15 @@ Commands:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+import time
 from pathlib import Path
 
+from contracts.models import BookPackage
 from contracts.validate import main as validate_main
 
-from .config import BOOKS, DEFAULT_DPI, find_book
+from .config import BOOKS, DATA, DEFAULT_DPI, find_book
 from .coverage import analyze_all
 from .ingest import ingest_book, ingest_pdf
 from .manual import auto_narrative_records, seed_narrative_corrections
@@ -161,6 +164,35 @@ def cmd_manual(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_vlm_check(args: argparse.Namespace) -> int:
+    """One page, one prompt: check the local model end to end without a full run."""
+    specs = _select(args)
+    if not specs:
+        raise SystemExit("select --all or --book")
+    provider = build_vlm()
+    model = getattr(provider, "model", "?")
+    print(f"vlm provider: {provider.name} model={model}")
+    if not provider.available():
+        print(f"unavailable: {getattr(provider, 'detail', '') or 'not configured'}")
+        return 1
+    prompt = args.prompt or "用中文简短描述这一页上看到的内容，只写画面里看得见的内容。"
+    for spec in specs:
+        book_path = DATA / spec.book_id / "book.json"
+        if not book_path.exists():
+            print(f"{spec.book_id}: no book.json")
+            continue
+        book = BookPackage.model_validate(json.loads(book_path.read_text(encoding="utf-8")))
+        pages = [p for p in book.pages if p.index == args.page] if args.page else book.pages[:1]
+        for page in pages:
+            image_path = DATA / spec.book_id / page.image_path
+            started = time.perf_counter()
+            result = provider.describe(image_path, prompt)
+            elapsed = time.perf_counter() - started
+            print(f"{spec.book_id} page {page.index}: {elapsed:.1f}s")
+            print(result.text[:600])
+    return 0
+
+
 def cmd_models(_args: argparse.Namespace) -> int:
     print(f"config: {config_path()}")
     print(f"ocr provider: {build_ocr().name}")
@@ -224,6 +256,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_manual = sub.add_parser("manual", help="seed the human correction file for a book")
     add_selection(p_manual)
     p_manual.set_defaults(func=cmd_manual)
+
+    p_check = sub.add_parser("vlm-check", help="send one page to the VLM and print the answer")
+    add_selection(p_check)
+    p_check.add_argument("--page", type=int, help="page index (default: first page)")
+    p_check.add_argument("--prompt", help="override the test prompt")
+    p_check.set_defaults(func=cmd_vlm_check)
 
     p_models = sub.add_parser("models", help="show configured OCR/VLM providers")
     p_models.set_defaults(func=cmd_models)
