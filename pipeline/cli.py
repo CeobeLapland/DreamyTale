@@ -30,7 +30,9 @@ from .query_sets import parse_script
 from .review import render_overlay
 from .scene import run_scene
 from .story import run_story
+from .tts import run_tts
 from .understanding import run_ocr_all
+from .video import run_video
 
 
 def _select(args: argparse.Namespace) -> list:
@@ -241,6 +243,36 @@ def cmd_index(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_video(args: argparse.Namespace) -> int:
+    specs = _select(args)
+    if not specs:
+        raise SystemExit("select --all or --book")
+    for spec in specs:
+        report = run_video(spec, limit_pages=args.limit_pages)
+        print(
+            f"  {spec.book_id}: scenes={report['scenes']} pages={report['pages']} "
+            f"total={report['total_ms']}ms errors={len(report['errors'])} "
+            f"{report['seconds']}s -> {report['book_video']}"
+        )
+    return 0
+
+
+def cmd_tts(args: argparse.Namespace) -> int:
+    specs = _select(args)
+    if not specs:
+        raise SystemExit("select --all or --book")
+    for spec in specs:
+        report = run_tts(spec)
+        if not report["available"]:
+            print(f"  {spec.book_id}: edge-tts not installed; narration stays in the subtitles")
+            continue
+        print(
+            f"  {spec.book_id}: files={len(report['files'])} errors={len(report['errors'])} "
+            f"{report['seconds']}s"
+        )
+    return 0
+
+
 def cmd_models(_args: argparse.Namespace) -> int:
     print(f"config: {config_path()}")
     print(f"ocr provider: {build_ocr().name}")
@@ -322,6 +354,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_index = sub.add_parser("index", help="build the search index and the scene index")
     add_selection(p_index)
     p_index.set_defaults(func=cmd_index)
+
+    p_video = sub.add_parser("video", help="ScenePlan -> page animations + book video")
+    add_selection(p_video)
+    p_video.add_argument("--limit-pages", type=int, help="only render up to this page")
+    p_video.set_defaults(func=cmd_video)
+
+    p_tts = sub.add_parser("tts", help="narration audio via Edge TTS (optional)")
+    add_selection(p_tts)
+    p_tts.set_defaults(func=cmd_tts)
 
     p_models = sub.add_parser("models", help="show configured OCR/VLM providers")
     p_models.set_defaults(func=cmd_models)
