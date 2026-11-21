@@ -6,6 +6,7 @@ from pathlib import Path
 from backend.app.adapters import AdapterUnavailableError, OCRBlock, OCRResult
 from backend.app.ocr_stage import run_ocr_stage
 from backend.app.store import BookStore
+from backend.tests.fixtures import valid_package, write_package
 
 
 class FakeOCRAdapter:
@@ -49,63 +50,21 @@ class OCRStageTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         root = Path(self.temporary.name)
         self.book_store = BookStore(root / "books")
-        self.package_root = self.book_store.root / "zh-99"
+        self.package_root = write_package(root / "books")
 
-        for directory in ("pages", "audio", "source"):
-            (self.package_root / directory).mkdir(parents=True)
-
-        for index in (1, 2):
-            (self.package_root / "pages" / f"{index:03d}.png").write_bytes(b"png")
-        (self.package_root / "audio" / "001.wav").write_bytes(b"wav")
-        (self.package_root / "source" / "book.pdf").write_bytes(b"pdf")
-        (self.package_root / "source" / "script.txt").write_text(
-            "01. 播放",
-            encoding="utf-8",
-        )
-
-        package = {
-            "schema_version": "1.0.0",
-            "book_id": "zh-99",
-            "source_name": "中文绘本99",
-            "title": "测试绘本",
-            "language": "zh-CN",
-            "pdf_path": "source/book.pdf",
-            "script_path": "source/script.txt",
-            "page_count": 2,
-            "pages": [
-                {
-                    "index": index,
-                    "image_path": f"pages/{index:03d}.png",
-                    "text": "",
-                    "text_source": "embedded_pdf",
-                    "width_pt": 100.0,
-                    "height_pt": 100.0,
-                    "width_px": 200,
-                    "height_px": 200,
-                    "text_spans": [],
-                    "hotspots": [],
-                }
-                for index in (1, 2)
-            ],
-            "steps": [
-                {
-                    "number": 1,
-                    "instruction": "播放",
-                    "mandatory": True,
-                    "audio_path": "audio/001.wav",
-                    "actions": [
-                        {
-                            "action_id": "step-001-a01",
-                            "type": "control",
-                            "text": "播放",
-                            "mandatory": True,
-                            "target": None,
-                        }
-                    ],
-                }
-            ],
-            "click_targets": [],
-        }
+        package = valid_package()
+        page = package["pages"][0]
+        page["text"] = ""
+        page["text_source"] = "none"
+        page["text_confidence"] = None
+        second = json.loads(json.dumps(page))
+        second["index"] = 2
+        second["image_path"] = "pages/002.png"
+        second["text_spans"] = []
+        second["hotspots"] = []
+        package["pages"] = [page, second]
+        package["page_count"] = 2
+        (self.package_root / "pages" / "002.png").write_bytes(b"png")
         (self.package_root / "book.json").write_text(
             json.dumps(package, ensure_ascii=False),
             encoding="utf-8",
@@ -127,8 +86,14 @@ class OCRStageTests(unittest.TestCase):
 
         self.assertEqual(1, adapter.health_calls)
         self.assertEqual(2, len(package.pages))
-        self.assertEqual(1, len(package.pages[0].text_spans))
-        self.assertEqual(1, len(package.pages[1].text_spans))
+        ocr_spans = [
+            span
+            for page in package.pages
+            for span in page.text_spans
+            if span.source.value == "ocr"
+        ]
+        self.assertEqual(2, len(ocr_spans))
+        self.assertEqual(16, len(ocr_spans[0].hash))
         self.assertEqual(("ocr", 0.0), progress[0])
         self.assertEqual(("ocr", 1.0), progress[-1])
 

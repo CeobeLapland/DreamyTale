@@ -1,17 +1,36 @@
+"""HTTP 接口（响应形状对齐 v2 契约）。
+
+- `GET  /api/books` / `GET /api/books/{book_id}`：v2 BookPackage
+- `GET  /api/books/{book_id}/query-sets[/{query_set_id}]`：v2 QuerySet（脚本不再在 book.json 里）
+- `GET  /api/books/{book_id}/capability`：v2 CapabilityReport
+- `POST /api/interact`：v2 InteractionRequest -> InteractionResponse
+- `POST /api/qa`：`kind=qa` 的兼容别名
+- `GET  /api/jobs/{job_id}` 等：v2 Job
+"""
+
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from backend.app.ingest_jobs import IngestionJobManager
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from backend.app.capability import build_capability_report, write_capability_report
 from backend.app.ingest import ingest_book
+from backend.app.ingest_jobs import IngestionJobManager
+from backend.app.interaction import handle_interaction
 from backend.app.jobs import JobManager, JobNotFoundError, JobStore
+from backend.app.models import (
+    InteractionKind,
+    InteractionRequest,
+    InteractionResponse,
+)
 from backend.app.store import (
     BookNotFoundError,
     BookStore,
@@ -21,8 +40,10 @@ from backend.app.validation import ContractError
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+# 默认和 pipeline 共用 data/books：两条链路写同一份 v2 book.json，
+# 否则 API 看不到 pipeline 产出的书（TEAM_DIVISION §12.3 耦合点 1）。
 BOOK_ROOT = Path(
-    os.environ.get("DREAMYTALE_BOOK_ROOT", REPOSITORY_ROOT / "temp" / "books")
+    os.environ.get("DREAMYTALE_BOOK_ROOT", REPOSITORY_ROOT / "data" / "books")
 ).resolve()
 JOB_STORE_PATH = Path(
     os.environ.get("DREAMYTALE_JOB_STORE", REPOSITORY_ROOT / "temp" / "jobs.json")
@@ -39,19 +60,10 @@ class IngestRequest(BaseModel):
     render_scale: float = Field(default=2.0, gt=0, le=4)
 
 
-class QARequestModel(BaseModel):
-    book_id: str
-    page_index: int = Field(ge=1)
-    current_time_ms: int = Field(ge=0)
-    hotspot_id: str | None = None
-    question_text: str | None = None
-    audio_path: str | None = None
-
-
 app = FastAPI(
     title="DreamyTale Backend",
-    version="0.1.0",
-    description="Book package, generation job and QA API for DreamyTale.",
+    version="2.0.0",
+    description="Book package, generation job and interaction API for DreamyTale.",
 )
 app.add_middleware(
     CORSMiddleware,
@@ -70,11 +82,11 @@ ingestions = IngestionJobManager(
 )
 
 
-def _error(status_code: int, code: str, message: str) -> JSONResponse:
-    return JSONResponse(
-        status_code=status_code,
-        content={"error": {"code": code, "message": message}},
-    )
+def _error(status_code: int, code: str, message: str, details: object = None) -> JSONResponse:
+    content: dict[str, object] = {"code": code, "message": message}
+    if details is not None:
+        content["details"] = details
+    return JSONResponse(status_code=status_code, content={"error": content})
 
 
 @app.exception_handler(BookNotFoundError)
@@ -87,15 +99,11 @@ async def handle_invalid_book(
     _request,
     exc: InvalidBookPackageError,
 ) -> JSONResponse:
-    return JSONResponse(
-        status_code=422,
-        content={
-            "error": {
-                "code": "invalid_book_package",
-                "message": str(exc),
-                "details": exc.errors,
-            }
-        },
+    return _error(
+        422,
+        "invalid_book_package",
+        str(exc),
+        exc.errors,
     )
 
 
@@ -106,15 +114,30 @@ async def handle_job_not_found(_request, exc: JobNotFoundError) -> JSONResponse:
 
 @app.exception_handler(ContractError)
 async def handle_contract_error(_request, exc: ContractError) -> JSONResponse:
-    return JSONResponse(
-        status_code=422,
-        content={
-            "error": {
-                "code": "invalid_data_contract",
-                "message": "book package does not satisfy the data contract",
-                "details": exc.errors,
-            }
-        },
+    return _error(
+        422,
+        "invalid_data_contract",
+        "book package does not satisfy the data contract",
+        exc.errors,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def handle_request_validation(
+    _request,
+    exc: RequestValidationError,
+) -> JSONResponse:
+    return _error(
+        422,
+        "invalid_request",
+        "request body does not satisfy the data contract",
+        [
+            "{}: {}".format(
+                ".".join(str(part) for part in item.get("loc", ())),
+                item.get("msg", "invalid value"),
+            )
+            for item in exc.errors()
+        ],
     )
 
 
@@ -142,6 +165,7 @@ async def handle_storage_error(_request, exc: OSError) -> JSONResponse:
 def service_info() -> dict[str, str]:
     return {
         "service": "DreamyTale Backend",
+        "schema_version": "2.0.0",
         "docs": "/docs",
         "health": "/health",
     }
@@ -163,7 +187,15 @@ def list_books() -> list[dict[str, object]]:
                 "title": package.title,
                 "source_name": package.source_name,
                 "language": package.language,
+                "languages": list(package.languages),
+                "content_type": package.content_type.value,
+                "source_type": package.source_type.value,
                 "page_count": package.page_count,
+                "status": package.status.value,
+                "query_set_ids": list(package.query_set_ids),
+                "capabilities_path": package.capabilities_path,
+                "created_at": package.created_at.isoformat() if package.created_at else None,
+                "updated_at": package.updated_at.isoformat() if package.updated_at else None,
             }
         )
     return summaries
@@ -171,7 +203,28 @@ def list_books() -> list[dict[str, object]]:
 
 @app.get("/api/books/{book_id}")
 def get_book(book_id: str) -> dict[str, object]:
-    return books.load(book_id).to_dict()
+    return books.load(book_id).model_dump(mode="json")
+
+
+@app.get("/api/books/{book_id}/query-sets")
+def list_query_sets(book_id: str) -> list[str]:
+    books.load(book_id)
+    return books.list_query_set_ids(book_id)
+
+
+@app.get("/api/books/{book_id}/query-sets/{query_set_id}")
+def get_query_set(book_id: str, query_set_id: str) -> dict[str, object]:
+    return books.load_query_set(book_id, query_set_id).model_dump(mode="json")
+
+
+@app.get("/api/books/{book_id}/capability")
+def get_capability(book_id: str) -> dict[str, object]:
+    package = books.load(book_id)
+    package_root = books.root / book_id
+    report = build_capability_report(package, package_root)
+    write_capability_report(report, package_root)
+    _record_capabilities_path(package_root, "derived/capability.json")
+    return report.model_dump(mode="json")
 
 
 @app.get("/api/books/{book_id}/assets/{asset_path:path}")
@@ -192,7 +245,8 @@ async def ingest(request: IngestRequest) -> dict[str, object]:
         render_scale=request.render_scale,
         force=request.force,
     )
-    return books.load(package_root.name).to_dict()
+    return books.load(package_root.name).model_dump(mode="json")
+
 
 @app.post("/api/books/ingest/upload", status_code=202)
 async def ingest_upload(
@@ -213,25 +267,51 @@ async def ingest_upload(
         force=force,
         render_scale=render_scale,
     )
-    return job.to_dict()
+    return job.model_dump(mode="json")
+
 
 @app.post("/api/books/{book_id}/generate", status_code=202)
 def generate(book_id: str) -> dict[str, object]:
     books.load(book_id)
-    return jobs.submit(book_id).to_dict()
+    return jobs.submit(book_id).model_dump(mode="json")
 
 
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str) -> dict[str, object]:
-    return jobs.store.get(job_id).to_dict()
+    return jobs.store.get(job_id).model_dump(mode="json")
 
 
-@app.post("/api/qa")
-def qa(_request: QARequestModel) -> JSONResponse:
-    return _error(
-        503,
-        "qa_not_configured",
-        "QA runtime is not configured; provide a QA adapter before enabling this endpoint",
+@app.post("/api/interact", response_model=InteractionResponse)
+def interact(request: InteractionRequest) -> InteractionResponse:
+    """v2 交互协议入口：没有 ASR/LLM/TTS 的部分一律返回 fallback，不伪造成功。"""
+    package = books.load(request.book_id)
+    return handle_interaction(request, package)
+
+
+@app.post("/api/qa", response_model=InteractionResponse)
+def qa(request: InteractionRequest) -> InteractionResponse:
+    """兼容别名：等价于 `POST /api/interact` 且 `kind=qa`。"""
+    payload = request.model_dump()
+    payload["kind"] = InteractionKind.qa
+    package = books.load(request.book_id)
+    return handle_interaction(InteractionRequest.model_validate(payload), package)
+
+
+def _record_capabilities_path(package_root: Path, relative: str) -> None:
+    """能力报告落盘后把路径记回 book.json，保持两个产物一致。"""
+    manifest_path = package_root / "book.json"
+    if not manifest_path.is_file():
+        return
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if data.get("capabilities_path") == relative:
+        return
+    data["capabilities_path"] = relative
+    manifest_path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
     )
 
 

@@ -1,13 +1,21 @@
+"""单书包读写。
+
+书包的磁盘布局和契约一致：`book.json`（v2 BookPackage）加 `query_sets/*.json`（v2 QuerySet）。
+脚本不再塞进 book.json，所以这里额外提供 QuerySet 的读写。
+"""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from backend.app.models import BookPackage
+from backend.app.models import BookPackage, QuerySet
+from backend.app.script_parser import query_set_from_legacy_steps, write_query_set
 from backend.app.validation import (
     ContractError,
     book_package_from_dict,
     normalize_book_package,
+    query_set_from_dict,
     validate_book_package,
 )
 
@@ -57,6 +65,27 @@ class BookStore:
         except ContractError as exc:
             raise InvalidBookPackageError(book_id, exc.errors) from exc
 
+    def list_query_set_ids(self, book_id: str) -> list[str]:
+        package_root = self._package_root(book_id)
+        query_dir = package_root / "query_sets"
+        if not query_dir.is_dir():
+            return []
+        return sorted(path.stem for path in query_dir.glob("*.json"))
+
+    def load_query_set(self, book_id: str, query_set_id: str) -> QuerySet:
+        package_root = self._package_root(book_id)
+        path = package_root / "query_sets" / f"{query_set_id}.json"
+        if not path.is_file():
+            raise BookNotFoundError(f"{book_id}/{query_set_id}")
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise InvalidBookPackageError(book_id, [f"invalid JSON: {exc}"]) from exc
+        try:
+            return query_set_from_dict(data, package_root=package_root)
+        except ContractError as exc:
+            raise InvalidBookPackageError(book_id, exc.errors) from exc
+
     def validate(self, book_id: str) -> list[str]:
         package_root = self._package_root(book_id)
         manifest_path = package_root / "book.json"
@@ -69,16 +98,28 @@ class BookStore:
         return validate_book_package(data, package_root=package_root)
 
     def migrate(self, book_id: str) -> bool:
+        """把旧版 book.json 升级到 v2，并把脚本拆成独立 QuerySet 文件。"""
         package_root = self._package_root(book_id)
         manifest_path = package_root / "book.json"
         if not manifest_path.is_file():
             raise BookNotFoundError(book_id)
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
-        normalized = normalize_book_package(data)
+        legacy_steps = data.get("steps")
+        normalized = normalize_book_package(data, package_root=package_root)
+
+        query_set_written = False
+        if isinstance(legacy_steps, list) and legacy_steps:
+            query_set = query_set_from_legacy_steps(legacy_steps, book_id=book_id)
+            write_query_set(query_set, package_root)
+            query_set_written = True
+            query_set_ids = normalized.setdefault("query_set_ids", [])
+            if query_set.query_set_id not in query_set_ids:
+                query_set_ids.append(query_set.query_set_id)
+
         errors = validate_book_package(normalized, package_root=package_root)
         if errors:
             raise InvalidBookPackageError(book_id, errors)
-        if normalized == data:
+        if normalized == data and not query_set_written:
             return False
         _write_json(manifest_path, normalized)
         return True

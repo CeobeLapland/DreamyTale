@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from backend.app.archive import ArchiveIndex
-from backend.app.ingest import ingest_book
+from backend.app.ingest import book_id_from_key, ingest_book
 from backend.app.script_parser import parse_script
 from backend.app.store import BookStore
 
@@ -51,27 +51,33 @@ def main() -> None:
         reports = []
         for book_key in archive.list_books():
             _, script_name, audio_directory = archive.find_book_files(book_key)
-            steps = parse_script(archive.read(script_name).decode("utf-8-sig"))
+            book_id = book_id_from_key(book_key)
+            query_set = parse_script(
+                archive.read(script_name).decode("utf-8-sig"),
+                book_id=book_id,
+            )
             audio = archive.audio_entries(audio_directory)
             reports.append(
                 {
                     "book": book_key,
-                    "steps": len(steps),
+                    "query_set_id": query_set.query_set_id,
+                    "steps": len(query_set.items),
+                    "actions": sum(len(item.actions) for item in query_set.items),
                     "audio": len(audio),
                     "missingAudio": [
-                        step.number
-                        for step in steps
-                        if step.number not in {number for number, _, _ in audio}
+                        item.number
+                        for item in query_set.items
+                        if item.number not in {number for number, _, _ in audio}
                     ],
                     "mandatorySteps": [
-                        step.number for step in steps if step.mandatory
+                        item.number for item in query_set.items if item.mandatory
                     ],
                     "clickTargets": sorted(
                         {
                             action.target
-                            for step in steps
-                            for action in step.actions
-                            if action.type == "click" and action.target
+                            for item in query_set.items
+                            for action in item.actions
+                            if action.kind == "click" and action.target
                         }
                     ),
                 }

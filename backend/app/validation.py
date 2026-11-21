@@ -1,33 +1,104 @@
+"""数据契约校验（v2）。
+
+事实源是 `contracts/models.py`：这里不再手写字段规则，而是把归一化后的数据喂给
+pydantic v2 模型，再把 pydantic 的报错整理成人能读的字符串列表。
+
+`normalize_book_package` 同时承担 v1 -> v2 升级：旧 `pdf_path` 变 `source_path`，
+旧 `script_path`/`steps`/`click_targets` 从 `book.json` 里拆出去（脚本属于 QuerySet），
+并补齐 v2 新增的必填字段。
+"""
+
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
+from pydantic import ValidationError
+
 from backend.app.models import (
+    SCHEMA_VERSION,
     BookPackage,
-    Hotspot,
-    Page,
-    ScriptAction,
-    ScriptStep,
-    TextSpan,
+    QuerySet,
+    content_hash,
 )
 
 
-SCHEMA_VERSION = "1.0.0"
-ACTION_TYPES = {
-    "control",
-    "find_scene",
-    "question",
-    "click",
-    "search_text",
-    "highlight",
-    "other",
+# v2 BookPackage 允许的顶层字段；v1 的 pdf_path/script_path/steps/click_targets 不在其中。
+_BOOK_FIELDS = (
+    "schema_version",
+    "book_id",
+    "source_name",
+    "title",
+    "authors",
+    "language",
+    "languages",
+    "content_type",
+    "source_type",
+    "source_path",
+    "page_count",
+    "pages",
+    "style",
+    "rights",
+    "status",
+    "query_set_ids",
+    "capabilities_path",
+    "created_at",
+    "updated_at",
+)
+_PAGE_FIELDS = (
+    "index",
+    "image_path",
+    "width_px",
+    "height_px",
+    "width_pt",
+    "height_pt",
+    "text",
+    "text_source",
+    "text_confidence",
+    "language",
+    "blocks",
+    "text_spans",
+    "hotspots",
+    "sha256",
+    "render",
+)
+_SPAN_FIELDS = (
+    "span_id",
+    "page_index",
+    "text",
+    "bbox_px",
+    "source",
+    "confidence",
+    "version",
+    "status",
+    "hash",
+)
+_HOTSPOT_FIELDS = (
+    "hotspot_id",
+    "page_index",
+    "label",
+    "bbox_px",
+    "description",
+    "source",
+    "confidence",
+    "version",
+    "status",
+    "hash",
+)
+# v1 遗留字段，迁移后不再出现在 book.json 里。
+_LEGACY_BOOK_FIELDS = ("pdf_path", "script_path", "steps", "click_targets")
+
+_DEFAULT_CONFIDENCE = {
+    "embedded_pdf": 0.99,
+    "ocr": 0.9,
+    "vlm": 0.8,
+    "manual": 0.99,
+    "mixed": 0.9,
 }
-TEXT_SOURCES = {"embedded_pdf", "ocr", "manual"}
-SPAN_SOURCES = {"embedded_pdf", "ocr", "manual", "vlm"}
-HOTSPOT_SOURCES = {"pdf_annotation", "vlm", "manual"}
-LANGUAGES = {"zh-CN", "en"}
 
 
 class ContractError(ValueError):
@@ -36,89 +107,229 @@ class ContractError(ValueError):
         super().__init__("; ".join(errors))
 
 
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def _as_posix_path(value: Any) -> Any:
     if isinstance(value, str):
         return value.replace("\\", "/")
     return value
 
 
-def normalize_book_package(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Normalize legacy manifests into the versioned data contract."""
-    package = copy.deepcopy(dict(data))
-    package.setdefault("schema_version", SCHEMA_VERSION)
-    package.setdefault("title", package.get("source_name", package.get("book_id", "")))
-
-    pages = package.get("pages")
-    if isinstance(pages, list):
-        for page in pages:
-            if not isinstance(page, dict):
-                continue
-            page["image_path"] = _as_posix_path(page.get("image_path"))
-            page.setdefault("text_source", "embedded_pdf")
-            page.setdefault("text_spans", [])
-            page.setdefault("hotspots", [])
-
-    steps = package.get("steps")
-    click_targets: set[str] = set()
-    if isinstance(steps, list):
-        for step in steps:
-            if not isinstance(step, dict):
-                continue
-            number = step.get("number")
-            actions = step.get("actions")
-            if not isinstance(actions, list) or not isinstance(number, int):
-                continue
-            for index, action in enumerate(actions, start=1):
-                if not isinstance(action, dict):
-                    continue
-                action.setdefault("action_id", f"step-{number:03d}-a{index:02d}")
-                if action.get("type") == "click" and action.get("target"):
-                    click_targets.add(str(action["target"]))
-            if step.get("audio_path"):
-                step["audio_path"] = _as_posix_path(step["audio_path"])
-
-    package["pdf_path"] = _as_posix_path(package.get("pdf_path"))
-    package["script_path"] = _as_posix_path(package.get("script_path"))
-    package["click_targets"] = sorted(click_targets)
-    return package
-
-
 def _is_relative_path(value: Any) -> bool:
     if not isinstance(value, str) or not value:
         return False
     path = PurePosixPath(value.replace("\\", "/"))
-    return (
-        not path.is_absolute()
-        and ".." not in path.parts
-        and bool(path.parts)
-    )
+    return not path.is_absolute() and ".." not in path.parts and bool(path.parts)
 
 
-def _validate_bbox(
-    value: Any,
-    field: str,
-    page: dict[str, Any],
-    errors: list[str],
-) -> None:
-    if (
-        not isinstance(value, list)
-        or len(value) != 4
-        or any(not isinstance(item, int) or isinstance(item, bool) for item in value)
-    ):
-        errors.append(f"{field} must be a four-integer array")
-        return
-    x1, y1, x2, y2 = value
-    width = page.get("width_px")
-    height = page.get("height_px")
-    if (
-        not isinstance(width, int)
-        or isinstance(width, bool)
-        or not isinstance(height, int)
-        or isinstance(height, bool)
-    ):
-        return
-    if not (0 <= x1 < x2 <= width and 0 <= y1 < y2 <= height):
-        errors.append(f"{field} is outside the page image bounds")
+def _sha256_file(path: Path) -> str | None:
+    try:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return None
+
+
+def _content_sha256(payload: Any) -> str:
+    blob = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _pick(data: Mapping[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
+    return {name: copy.deepcopy(data[name]) for name in fields if name in data}
+
+
+def _normalize_bbox(value: Any) -> Any:
+    if isinstance(value, (list, tuple)) and len(value) == 4:
+        return [int(item) for item in value]
+    return value
+
+
+def _normalize_span(span: Mapping[str, Any]) -> dict[str, Any]:
+    normalized = _pick(span, _SPAN_FIELDS)
+    normalized["bbox_px"] = _normalize_bbox(normalized.get("bbox_px"))
+    normalized.setdefault("version", 1)
+    normalized.setdefault("status", "active")
+    source = str(normalized.get("source", "embedded_pdf"))
+    normalized["source"] = source
+    if "confidence" not in normalized:
+        normalized["confidence"] = _DEFAULT_CONFIDENCE.get(source, 0.9)
+    if "hash" not in normalized:
+        normalized["hash"] = content_hash(dict(normalized))
+    return normalized
+
+
+def _normalize_hotspot(hotspot: Mapping[str, Any]) -> dict[str, Any]:
+    normalized = _pick(hotspot, _HOTSPOT_FIELDS)
+    normalized["bbox_px"] = _normalize_bbox(normalized.get("bbox_px"))
+    normalized.setdefault("version", 1)
+    normalized.setdefault("status", "active")
+    source = str(normalized.get("source", "auto"))
+    normalized["source"] = source
+    if "confidence" not in normalized:
+        normalized["confidence"] = _DEFAULT_CONFIDENCE.get(source, 0.9)
+    if "hash" not in normalized:
+        normalized["hash"] = content_hash(dict(normalized))
+    return normalized
+
+
+def _infer_render(page: Mapping[str, Any]) -> dict[str, Any] | None:
+    """能从页面像素尺寸反推 DPI 时给出 render；反推不出就留空，不编数据。"""
+    width_pt = page.get("width_pt")
+    width_px = page.get("width_px")
+    if not isinstance(width_pt, (int, float)) or not isinstance(width_px, int):
+        return None
+    if width_pt <= 0 or width_px <= 0:
+        return None
+    dpi = round(72 * width_px / width_pt)
+    if not 36 <= dpi <= 600:
+        return None
+    return {"dpi": dpi, "renderer": "legacy", "version": "unknown"}
+
+
+def _normalize_page(
+    page: Mapping[str, Any],
+    *,
+    package_root: Path | None,
+) -> dict[str, Any]:
+    normalized = _pick(page, _PAGE_FIELDS)
+    normalized["image_path"] = _as_posix_path(normalized.get("image_path"))
+
+    text = normalized.get("text")
+    text = text if isinstance(text, str) else ""
+    text_source = normalized.get("text_source")
+    if not text.strip():
+        # v2：无字页必须是 text_source=none 且 text 为空。
+        text_source = "none"
+    elif not text_source:
+        text_source = "embedded_pdf"
+    normalized["text"] = text
+    normalized["text_source"] = text_source
+    if normalized.get("text_confidence") is None and text_source != "none":
+        normalized["text_confidence"] = _DEFAULT_CONFIDENCE.get(str(text_source), 0.9)
+    if text_source == "none":
+        normalized["text_confidence"] = None
+
+    normalized["blocks"] = [
+        dict(block) for block in normalized.get("blocks", []) or [] if isinstance(block, dict)
+    ]
+    normalized["text_spans"] = [
+        _normalize_span(span)
+        for span in normalized.get("text_spans", []) or []
+        if isinstance(span, dict)
+    ]
+    normalized["hotspots"] = [
+        _normalize_hotspot(hotspot)
+        for hotspot in normalized.get("hotspots", []) or []
+        if isinstance(hotspot, dict)
+    ]
+
+    if not normalized.get("sha256"):
+        digest = None
+        image_path = normalized.get("image_path")
+        if package_root is not None and _is_relative_path(image_path):
+            digest = _sha256_file(package_root / image_path)
+        normalized["sha256"] = digest or _content_sha256(normalized)
+    if not normalized.get("render"):
+        normalized["render"] = _infer_render(normalized)
+    return normalized
+
+
+def normalize_book_package(
+    data: Mapping[str, Any],
+    *,
+    package_root: Path | None = None,
+) -> dict[str, Any]:
+    """把任意版本的书包数据归一化成 v2 BookPackage 形状。
+
+    v1 -> v2 的映射：pdf_path -> source_path + source_type；script_path/steps/click_targets
+    被移出 book.json（脚本属于 QuerySet）；补齐 content_type/status/created_at 等字段。
+    """
+    raw = copy.deepcopy(dict(data))
+    package = _pick(raw, _BOOK_FIELDS)
+
+    package["schema_version"] = SCHEMA_VERSION
+    package.setdefault("authors", [])
+    package.setdefault("languages", [])
+    package.setdefault("query_set_ids", [])
+    package.setdefault("capabilities_path", None)
+    package.setdefault("style", None)
+    package.setdefault("rights", None)
+    package.setdefault("created_at", _utc_now())
+    package.setdefault("updated_at", package["created_at"])
+
+    if not package.get("source_path") and isinstance(raw.get("pdf_path"), str):
+        package["source_path"] = raw["pdf_path"]
+    package["source_path"] = _as_posix_path(package.get("source_path", ""))
+    package.setdefault("source_type", "pdf")
+    package.setdefault("content_type", "narrative")
+    package.setdefault("status", "ingested")
+
+    if not package.get("title"):
+        package["title"] = package.get("source_name") or package.get("book_id") or ""
+    if not package.get("source_name"):
+        package["source_name"] = package["title"]
+    if not package.get("language"):
+        package["language"] = "zh-CN"
+    if not package["languages"]:
+        package["languages"] = [package["language"]]
+
+    pages = raw.get("pages")
+    normalized_pages = [
+        _normalize_page(page, package_root=package_root)
+        for page in pages
+        if isinstance(page, dict)
+    ] if isinstance(pages, list) else []
+    package["pages"] = normalized_pages
+    # page_count 不做纠正：写错页数必须报错，而不是被静默改对。
+    package.setdefault("page_count", len(normalized_pages))
+
+    for legacy_field in _LEGACY_BOOK_FIELDS:
+        package.pop(legacy_field, None)
+    return package
+
+
+def _format_validation_errors(exc: ValidationError) -> list[str]:
+    messages: list[str] = []
+    for error in exc.errors():
+        location = ".".join(str(part) for part in error.get("loc", ())) or "book"
+        message = error.get("msg", "invalid value")
+        messages.append(f"{location}: {message}")
+    return messages
+
+
+def _query_set_audio_paths(package_root: Path) -> list[str]:
+    paths: list[str] = []
+    query_dir = package_root / "query_sets"
+    if not query_dir.is_dir():
+        return paths
+    for path in sorted(query_dir.glob("*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for item in data.get("items", []) or []:
+            audio_path = item.get("audio_path")
+            if isinstance(audio_path, str) and audio_path:
+                paths.append(audio_path)
+    return paths
+
+
+def _collect_audio_paths(data: Mapping[str, Any], package_root: Path | None) -> list[str]:
+    paths: list[str] = []
+    steps = data.get("steps")
+    if isinstance(steps, list):
+        for step in steps:
+            if isinstance(step, dict) and isinstance(step.get("audio_path"), str):
+                paths.append(step["audio_path"])
+    if package_root is not None:
+        paths.extend(_query_set_audio_paths(package_root))
+    return paths
 
 
 def validate_book_package(
@@ -126,197 +337,42 @@ def validate_book_package(
     *,
     package_root: Path | None = None,
 ) -> list[str]:
+    """校验 v2 书包；返回人类可读的错误列表，空列表表示通过。"""
     package = normalize_book_package(data)
     errors: list[str] = []
 
-    required_strings = (
-        "schema_version",
-        "book_id",
-        "source_name",
-        "title",
-        "language",
-        "pdf_path",
-        "script_path",
-    )
-    for field in required_strings:
-        if not isinstance(package.get(field), str) or not package[field]:
-            errors.append(f"{field} must be a non-empty string")
+    try:
+        BookPackage.model_validate(package)
+    except ValidationError as exc:
+        errors.extend(_format_validation_errors(exc))
 
-    if package.get("schema_version") != SCHEMA_VERSION:
-        errors.append(f"schema_version must be {SCHEMA_VERSION}")
-    if package.get("language") not in LANGUAGES:
-        errors.append("language must be zh-CN or en")
-    for field in ("pdf_path", "script_path"):
-        if not _is_relative_path(package.get(field)):
-            errors.append(f"{field} must be a safe package-relative path")
-
-    pages = package.get("pages")
-    if not isinstance(pages, list) or not pages:
-        errors.append("pages must be a non-empty array")
-        pages = []
-    if package.get("page_count") != len(pages):
-        errors.append("page_count must equal len(pages)")
-
-    page_indexes: list[int] = []
-    span_ids: set[str] = set()
-    hotspot_ids: set[str] = set()
-    seen_page_indexes: set[int] = set()
-
-    for position, page in enumerate(pages, start=1):
+    for page in package.get("pages", []):
         if not isinstance(page, dict):
-            errors.append(f"pages[{position - 1}] must be an object")
             continue
-        index = page.get("index")
-        if not isinstance(index, int) or isinstance(index, bool):
-            errors.append(f"pages[{position - 1}].index must be an integer")
-            continue
-        if index in seen_page_indexes:
-            errors.append(f"duplicate page index {index}")
-        seen_page_indexes.add(index)
-        page_indexes.append(index)
+        image_path = page.get("image_path")
+        if not _is_relative_path(image_path):
+            errors.append(
+                f"page {page.get('index')} image_path must be a safe package-relative path"
+            )
 
-        if not _is_relative_path(page.get("image_path")):
-            errors.append(f"page {index} image_path must be a safe relative path")
-        if page.get("text_source") not in TEXT_SOURCES:
-            errors.append(f"page {index} text_source is invalid")
-        for field in ("width_pt", "height_pt"):
-            if not isinstance(page.get(field), (int, float)) or page[field] <= 0:
-                errors.append(f"page {index} {field} must be positive")
-        for field in ("width_px", "height_px"):
-            if not isinstance(page.get(field), int) or page[field] <= 0:
-                errors.append(f"page {index} {field} must be a positive integer")
-
-        spans = page.get("text_spans")
-        if not isinstance(spans, list):
-            errors.append(f"page {index} text_spans must be an array")
-            spans = []
-        for span_position, span in enumerate(spans):
-            prefix = f"page {index} text_spans[{span_position}]"
-            if not isinstance(span, dict):
-                errors.append(f"{prefix} must be an object")
-                continue
-            span_id = span.get("span_id")
-            if not isinstance(span_id, str) or not span_id:
-                errors.append(f"{prefix}.span_id must be non-empty")
-            elif span_id in span_ids:
-                errors.append(f"duplicate span_id {span_id}")
-            else:
-                span_ids.add(span_id)
-            if span.get("page_index") != index:
-                errors.append(f"{prefix}.page_index must match page index")
-            if not isinstance(span.get("text"), str) or not span["text"]:
-                errors.append(f"{prefix}.text must be non-empty")
-            if span.get("source") not in SPAN_SOURCES:
-                errors.append(f"{prefix}.source is invalid")
-            _validate_bbox(span.get("bbox_px"), f"{prefix}.bbox_px", page, errors)
-
-        hotspots = page.get("hotspots")
-        if not isinstance(hotspots, list):
-            errors.append(f"page {index} hotspots must be an array")
-            hotspots = []
-        for hotspot_position, hotspot in enumerate(hotspots):
-            prefix = f"page {index} hotspots[{hotspot_position}]"
-            if not isinstance(hotspot, dict):
-                errors.append(f"{prefix} must be an object")
-                continue
-            hotspot_id = hotspot.get("hotspot_id")
-            if not isinstance(hotspot_id, str) or not hotspot_id:
-                errors.append(f"{prefix}.hotspot_id must be non-empty")
-            elif hotspot_id in hotspot_ids:
-                errors.append(f"duplicate hotspot_id {hotspot_id}")
-            else:
-                hotspot_ids.add(hotspot_id)
-            if hotspot.get("page_index") != index:
-                errors.append(f"{prefix}.page_index must match page index")
-            for field in ("label", "description"):
-                if not isinstance(hotspot.get(field), str) or not hotspot[field]:
-                    errors.append(f"{prefix}.{field} must be non-empty")
-            if hotspot.get("source") not in HOTSPOT_SOURCES:
-                errors.append(f"{prefix}.source is invalid")
-            _validate_bbox(hotspot.get("bbox_px"), f"{prefix}.bbox_px", page, errors)
-
-    if page_indexes and page_indexes != list(range(1, len(pages) + 1)):
-        errors.append("page indexes must start at 1 and be consecutive")
+    if not _is_relative_path(package.get("source_path")):
+        errors.append("source_path must be a safe package-relative path")
 
     if package_root is not None:
-        for field in ("pdf_path", "script_path"):
-            path = package.get(field)
-            if _is_relative_path(path) and not (package_root / path).is_file():
-                errors.append(f"{field} does not exist: {path}")
-        for page in pages:
-            if not isinstance(page, dict) or not _is_relative_path(page.get("image_path")):
+        source_path = package.get("source_path")
+        if _is_relative_path(source_path) and not (package_root / source_path).is_file():
+            errors.append(f"source_path does not exist: {source_path}")
+        for page in package.get("pages", []):
+            if not isinstance(page, dict):
                 continue
-            if not (package_root / page["image_path"]).is_file():
+            image_path = page.get("image_path")
+            if _is_relative_path(image_path) and not (package_root / image_path).is_file():
                 errors.append(f"page {page.get('index')} image does not exist")
-
-    steps = package.get("steps")
-    if not isinstance(steps, list) or not steps:
-        errors.append("steps must be a non-empty array")
-        steps = []
-    step_numbers: list[int] = []
-    action_ids: set[str] = set()
-    expected_click_targets: set[str] = set()
-
-    for position, step in enumerate(steps):
-        if not isinstance(step, dict):
-            errors.append(f"steps[{position}] must be an object")
-            continue
-        number = step.get("number")
-        if not isinstance(number, int) or isinstance(number, bool):
-            errors.append(f"steps[{position}].number must be an integer")
-            continue
-        step_numbers.append(number)
-        if not isinstance(step.get("instruction"), str) or not step["instruction"]:
-            errors.append(f"step {number} instruction must be non-empty")
-        if not isinstance(step.get("mandatory"), bool):
-            errors.append(f"step {number} mandatory must be boolean")
-        if not _is_relative_path(step.get("audio_path")):
-            errors.append(f"step {number} audio_path must be a safe relative path")
-        elif package_root is not None and not (package_root / step["audio_path"]).is_file():
-            errors.append(f"step {number} audio does not exist")
-
-        actions = step.get("actions")
-        if not isinstance(actions, list) or not actions:
-            errors.append(f"step {number} actions must be a non-empty array")
-            continue
-        for action_position, action in enumerate(actions):
-            prefix = f"step {number} actions[{action_position}]"
-            if not isinstance(action, dict):
-                errors.append(f"{prefix} must be an object")
-                continue
-            action_id = action.get("action_id")
-            if not isinstance(action_id, str) or not action_id:
-                errors.append(f"{prefix}.action_id must be non-empty")
-            elif action_id in action_ids:
-                errors.append(f"duplicate action_id {action_id}")
-            else:
-                action_ids.add(action_id)
-            if action.get("type") not in ACTION_TYPES:
-                errors.append(f"{prefix}.type is invalid")
-            if not isinstance(action.get("text"), str) or not action["text"]:
-                errors.append(f"{prefix}.text must be non-empty")
-            if not isinstance(action.get("mandatory"), bool):
-                errors.append(f"{prefix}.mandatory must be boolean")
-            if action.get("type") == "click":
-                target = action.get("target")
-                if not isinstance(target, str) or not target:
-                    errors.append(f"{prefix}.target is required for click")
-                else:
-                    expected_click_targets.add(target)
-
-    if step_numbers:
-        if len(step_numbers) != len(set(step_numbers)):
-            errors.append("script step numbers must be unique")
-        if step_numbers != list(range(1, len(step_numbers) + 1)):
-            errors.append("script step numbers must start at 1 and be consecutive")
-
-    declared_click_targets = package.get("click_targets")
-    if (
-        not isinstance(declared_click_targets, list)
-        or any(not isinstance(target, str) for target in declared_click_targets)
-        or set(declared_click_targets) != expected_click_targets
-    ):
-        errors.append("click_targets must match click action targets")
+        for audio_path in _collect_audio_paths(data, package_root):
+            if not _is_relative_path(audio_path):
+                errors.append(f"audio_path must be a safe package-relative path: {audio_path}")
+            elif not (package_root / audio_path).is_file():
+                errors.append(f"audio does not exist: {audio_path}")
 
     return errors
 
@@ -326,46 +382,31 @@ def book_package_from_dict(
     *,
     package_root: Path | None = None,
 ) -> BookPackage:
-    package = normalize_book_package(data)
+    package = normalize_book_package(data, package_root=package_root)
     errors = validate_book_package(package, package_root=package_root)
     if errors:
         raise ContractError(errors)
+    return BookPackage.model_validate(package)
 
-    pages = [
-        Page(
-            index=page["index"],
-            image_path=page["image_path"],
-            text=page.get("text", ""),
-            text_source=page["text_source"],
-            width_pt=page["width_pt"],
-            height_pt=page["height_pt"],
-            width_px=page["width_px"],
-            height_px=page["height_px"],
-            text_spans=[TextSpan(**span) for span in page["text_spans"]],
-            hotspots=[Hotspot(**hotspot) for hotspot in page["hotspots"]],
-        )
-        for page in package["pages"]
-    ]
-    steps = [
-        ScriptStep(
-            number=step["number"],
-            instruction=step["instruction"],
-            mandatory=step["mandatory"],
-            audio_path=step["audio_path"],
-            actions=[ScriptAction(**action) for action in step["actions"]],
-        )
-        for step in package["steps"]
-    ]
-    return BookPackage(
-        schema_version=package["schema_version"],
-        book_id=package["book_id"],
-        source_name=package["source_name"],
-        title=package["title"],
-        language=package["language"],
-        pdf_path=package["pdf_path"],
-        script_path=package["script_path"],
-        page_count=package["page_count"],
-        pages=pages,
-        steps=steps,
-        click_targets=package["click_targets"],
-    )
+
+def query_set_from_dict(
+    data: Mapping[str, Any],
+    *,
+    package_root: Path | None = None,
+) -> QuerySet:
+    """校验 v2 QuerySet；`package_root` 存在时额外检查音频文件。"""
+    errors: list[str] = []
+    try:
+        query_set = QuerySet.model_validate(data)
+    except ValidationError as exc:
+        errors.extend(_format_validation_errors(exc))
+    if errors:
+        raise ContractError(errors)
+
+    if package_root is not None:
+        for item in query_set.items:
+            if item.audio_path and not (package_root / item.audio_path).is_file():
+                errors.append(f"audio does not exist: {item.audio_path}")
+    if errors:
+        raise ContractError(errors)
+    return query_set

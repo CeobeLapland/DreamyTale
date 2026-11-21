@@ -1,10 +1,16 @@
+"""VLM 结果回写。
+
+回写后的 hotspots 必须满足 v2 Hotspot：`confidence`、`version`、`status`、`hash` 齐全，
+`bbox_px` 落在页图范围内（越界由契约校验拦下，不静默裁剪）。
+"""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
 from backend.app.adapters.vlm import VLMPageResult
-from backend.app.models import BookPackage
+from backend.app.models import BookPackage, SCHEMA_VERSION, content_hash
 from backend.app.validation import (
     ContractError,
     book_package_from_dict,
@@ -24,8 +30,8 @@ def apply_vlm_result(
     if not manifest_path.is_file():
         raise FileNotFoundError(f"book manifest not found: {manifest_path}")
 
-    data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    data = normalize_book_package(data)
+    data = normalize_book_package(json.loads(manifest_path.read_text(encoding="utf-8")))
+    book_id = data.get("book_id", "book")
     pages = data["pages"]
     page = next(
         (item for item in pages if item["index"] == result.page_index),
@@ -53,23 +59,24 @@ def apply_vlm_result(
         if item.bbox_px is None:
             continue
         while True:
-            hotspot_id = (
-                f"page-{result.page_index:03d}-hotspot-{sequence:03d}"
-            )
+            hotspot_id = f"hotspot-{book_id}-{result.page_index:03d}-vlm-{sequence:03d}"
             sequence += 1
             if hotspot_id not in used_ids:
                 break
         used_ids.add(hotspot_id)
-        new_hotspots.append(
-            {
-                "hotspot_id": hotspot_id,
-                "page_index": result.page_index,
-                "label": item.label,
-                "bbox_px": list(item.bbox_px),
-                "description": item.description,
-                "source": "vlm",
-            }
-        )
+        hotspot = {
+            "hotspot_id": hotspot_id,
+            "page_index": result.page_index,
+            "label": item.label,
+            "bbox_px": list(item.bbox_px),
+            "description": item.description,
+            "source": "vlm",
+            "confidence": item.confidence,
+            "version": 1,
+            "status": "active",
+        }
+        hotspot["hash"] = content_hash(hotspot)
+        new_hotspots.append(hotspot)
 
     page["hotspots"] = retained_hotspots + new_hotspots
     errors = validate_book_package(data, package_root=package_root)
@@ -77,6 +84,7 @@ def apply_vlm_result(
         raise ContractError(errors)
 
     raw_result = {
+        "schema_version": SCHEMA_VERSION,
         "page_index": result.page_index,
         "provider": provider or "unknown",
         "summary": result.summary,

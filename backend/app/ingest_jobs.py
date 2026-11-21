@@ -1,3 +1,8 @@
+"""上传压缩包 -> 后台 ingest 任务。
+
+任务状态用契约 §10 的 v2 Job，失败时按契约给出可读 error 和阶段错误码。
+"""
+
 from __future__ import annotations
 
 import shutil
@@ -8,8 +13,8 @@ from pathlib import Path
 from typing import BinaryIO, Callable
 
 from backend.app.ingest import book_id_from_key, ingest_book
-from backend.app.jobs import JobStore
-from backend.app.models import Job
+from backend.app.jobs import JobStore, error_code_for
+from backend.app.models import Job, JobStage, JobStatus
 
 
 class IngestionJobManager:
@@ -48,12 +53,12 @@ class IngestionJobManager:
             shutil.copyfileobj(source, target)
 
         book_id = book_id_from_key(book_key)
-        now = _utc_now()
+        now = datetime.now(UTC).replace(microsecond=0)
         job = Job(
             job_id=f"job-{book_id}-{datetime.now(UTC):%Y%m%d%H%M%S}-{uuid.uuid4().hex[:8]}",
             book_id=book_id,
-            status="queued",
-            stage="ingest",
+            status=JobStatus.queued,
+            stage=JobStage.ingest,
             progress=0.0,
             created_at=now,
             updated_at=now,
@@ -87,8 +92,8 @@ class IngestionJobManager:
     ) -> None:
         self.job_store.update(
             job_id,
-            status="running",
-            stage="ingest",
+            status=JobStatus.running.value,
+            stage=JobStage.ingest.value,
             progress=0.05,
             clear_error=True,
         )
@@ -105,12 +110,19 @@ class IngestionJobManager:
                 )
         except Exception as exc:
             message = str(exc).strip() or exc.__class__.__name__
-            self.job_store.update(job_id, status="failed", error=message)
+            code = error_code_for(JobStage.ingest, exc)
+            self.job_store.update(
+                job_id,
+                status=JobStatus.failed.value,
+                error=message,
+                error_code=code,
+                retryable=code != "INGEST_SOURCE_MISSING",
+            )
         else:
             self.job_store.update(
                 job_id,
-                status="completed",
-                stage="index",
+                status=JobStatus.completed.value,
+                stage=JobStage.index.value,
                 progress=1.0,
                 clear_error=True,
             )
@@ -123,7 +135,3 @@ class IngestionJobManager:
     def _book_lock(self, book_key: str) -> threading.Lock:
         with self._locks_guard:
             return self._locks.setdefault(book_key, threading.Lock())
-
-
-def _utc_now() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")

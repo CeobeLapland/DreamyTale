@@ -1,3 +1,9 @@
+"""文件型 Job 队列，形状对齐契约 §10 的 v2 Job。
+
+Job 的字段、状态枚举和错误码都以 `contracts.models.Job` 为准；这里只负责持久化
+和状态流转，不自己定义第二套结构。
+"""
+
 from __future__ import annotations
 
 import json
@@ -7,23 +13,25 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable, Protocol
 
-from backend.app.models import Job
+from backend.app.models import Job, JobStage, JobStatus
 
-
-JOB_STATUSES = {"queued", "running", "completed", "failed", "cancelled"}
-JOB_STAGES = {
-    "ingest",
-    "ocr",
-    "vlm",
-    "story",
-    "scene",
-    "video",
-    "tts",
-    "compose",
-    "index",
-}
 
 ProgressReporter = Callable[[str, float], None]
+
+# 契约 §10 的阶段 -> 错误码映射。
+STAGE_ERROR_CODES = {
+    JobStage.ingest: "INGEST_RENDER_FAILED",
+    JobStage.ocr: "OCR_FAILED",
+    JobStage.vlm: "VLM_FAILED",
+    JobStage.story: "STORY_FAILED",
+    JobStage.scene: "SCENE_FAILED",
+    JobStage.video: "VIDEO_FAILED",
+    JobStage.tts: "TTS_FAILED",
+    JobStage.compose: "COMPOSE_FAILED",
+    JobStage.index: "INDEX_FAILED",
+}
+# 契约 §10 里标了不可重试的错误码。
+NON_RETRYABLE_ERROR_CODES = {"INGEST_SOURCE_MISSING"}
 
 
 class JobNotFoundError(LookupError):
@@ -39,8 +47,14 @@ class UnavailableGenerationRunner:
         raise RuntimeError("generation pipeline is not configured")
 
 
-def _utc_now() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+def _utc_now() -> datetime:
+    return datetime.now(UTC).replace(microsecond=0)
+
+
+def error_code_for(stage: JobStage, exc: BaseException) -> str:
+    if isinstance(exc, FileNotFoundError):
+        return "INGEST_SOURCE_MISSING"
+    return STAGE_ERROR_CODES.get(stage, "GENERATION_FAILED")
 
 
 class JobStore:
@@ -70,7 +84,7 @@ class JobStore:
             data = self._load_unlocked()
             if job.job_id in data:
                 raise ValueError(f"duplicate job id: {job.job_id}")
-            data[job.job_id] = job.to_dict()
+            data[job.job_id] = job.model_dump(mode="json")
             self._write_unlocked(data)
         return job
 
@@ -80,7 +94,7 @@ class JobStore:
         raw = data.get(job_id)
         if raw is None:
             raise JobNotFoundError(job_id)
-        return Job(**raw)
+        return Job.model_validate(raw)
 
     def update(
         self,
@@ -90,11 +104,15 @@ class JobStore:
         stage: str | None = None,
         progress: float | None = None,
         error: str | None = None,
+        error_code: str | None = None,
+        degraded: bool | None = None,
+        retryable: bool | None = None,
+        manifest_path: str | None = None,
         clear_error: bool = False,
     ) -> Job:
-        if status is not None and status not in JOB_STATUSES:
+        if status is not None and status not in {item.value for item in JobStatus}:
             raise ValueError(f"invalid job status: {status}")
-        if stage is not None and stage not in JOB_STAGES:
+        if stage is not None and stage not in {item.value for item in JobStage}:
             raise ValueError(f"invalid job stage: {stage}")
         if progress is not None and not 0 <= progress <= 1:
             raise ValueError("job progress must be between 0 and 1")
@@ -110,13 +128,22 @@ class JobStore:
                 raw["stage"] = stage
             if progress is not None:
                 raw["progress"] = progress
+            if degraded is not None:
+                raw["degraded"] = degraded
+            if retryable is not None:
+                raw["retryable"] = retryable
+            if manifest_path is not None:
+                raw["manifest_path"] = manifest_path
             if clear_error:
                 raw["error"] = None
+                raw["error_code"] = None
             elif error is not None:
                 raw["error"] = error
-            raw["updated_at"] = _utc_now()
+            if error_code is not None:
+                raw["error_code"] = error_code
+            raw["updated_at"] = _utc_now().isoformat().replace("+00:00", "Z")
             self._write_unlocked(data)
-        return Job(**raw)
+        return Job.model_validate(raw)
 
 
 class JobManager:
@@ -133,8 +160,8 @@ class JobManager:
         job = Job(
             job_id=self._new_job_id(book_id),
             book_id=book_id,
-            status="queued",
-            stage="story",
+            status=JobStatus.queued,
+            stage=JobStage.story,
             progress=0.0,
             created_at=now,
             updated_at=now,
@@ -155,16 +182,23 @@ class JobManager:
     def _execute(self, job_id: str, book_id: str) -> None:
         self.store.update(
             job_id,
-            status="running",
+            status=JobStatus.running.value,
             progress=0.01,
             clear_error=True,
         )
 
-        def report(stage: str, progress: float) -> None:
+        stage = JobStage.story
+
+        def report(stage_name: str, progress: float) -> None:
+            nonlocal stage
+            try:
+                stage = JobStage(stage_name)
+            except ValueError:
+                return
             self.store.update(
                 job_id,
-                status="running",
-                stage=stage,
+                status=JobStatus.running.value,
+                stage=stage.value,
                 progress=progress,
             )
 
@@ -172,16 +206,19 @@ class JobManager:
             self.runner.run(book_id, report)
         except Exception as exc:
             message = str(exc).strip() or exc.__class__.__name__
+            code = error_code_for(stage, exc)
             self.store.update(
                 job_id,
-                status="failed",
+                status=JobStatus.failed.value,
                 error=message,
+                error_code=code,
+                retryable=code not in NON_RETRYABLE_ERROR_CODES,
             )
             return
         self.store.update(
             job_id,
-            status="completed",
-            stage="index",
+            status=JobStatus.completed.value,
+            stage=JobStage.index.value,
             progress=1.0,
             clear_error=True,
         )

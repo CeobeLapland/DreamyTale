@@ -73,6 +73,23 @@ class UploadApiTests(unittest.TestCase):
         self.assertEqual("zh-01", job["book_id"])
         self.assertEqual("completed", job["status"])
         self.assertEqual(1.0, job["progress"])
+        self.assertIn("error_code", job)
+
+    def test_rejects_non_zip_upload(self) -> None:
+        response = self.client.post(
+            "/api/books/ingest/upload",
+            files={
+                "archive": ("sample.pdf", b"fake-pdf", "application/pdf"),
+            },
+            data={
+                "book_key": "中文绘本01",
+                "force": "false",
+                "render_scale": "2.0",
+            },
+        )
+
+        self.assertEqual(422, response.status_code)
+        self.assertEqual("invalid_request", response.json()["error"]["code"])
 
 
 if __name__ == "__main__":
