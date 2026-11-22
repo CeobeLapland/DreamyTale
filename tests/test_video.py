@@ -24,27 +24,40 @@ class MotionTests(unittest.TestCase):
 
 
 class RenderTests(unittest.TestCase):
-    def test_page_animation_is_written(self) -> None:
+    def test_page_animation_is_written_with_unicode_paths(self) -> None:
         import cv2
         import numpy as np
 
+        from pipeline.video import _ascii_video_input
+
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            page = root / "page.png"
+            root = Path(tmp) / "中文目录"
+            root.mkdir(parents=True)
+
+            page = root / "页面.png"
             image = np.zeros((600, 1000, 3), dtype=np.uint8)
             image[:, :] = (200, 120, 60)
-            cv2.imwrite(str(page), image)
+            ok, encoded = cv2.imencode(".png", image)
+            self.assertTrue(ok)
+            encoded.tofile(page)
 
-            out = root / "scene.mp4"
-            render_scene_animation(page, out, duration_ms=1000, camera="推近", fps=8)
+            out = root / "场景动画.mp4"
+            render_scene_animation(
+                page,
+                out,
+                duration_ms=1000,
+                camera="推近",
+                fps=8,
+            )
             self.assertTrue(out.is_file())
             self.assertGreater(out.stat().st_size, 0)
 
-            capture = cv2.VideoCapture(str(out))
-            frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-            capture.release()
-            self.assertGreaterEqual(frames, 6)
+            with _ascii_video_input(out) as readable:
+                capture = cv2.VideoCapture(str(readable))
+                frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+                capture.release()
 
+            self.assertGreaterEqual(frames, 6)
 
 class TtsTests(unittest.TestCase):
     def test_edge_tts_availability_is_a_bool(self) -> None:
