@@ -34,6 +34,7 @@ from backend.app.models import (
     TextSpan,
 )
 from backend.app.script_parser import classify_instruction, control_action_for
+from backend.app.knowledge import find_qa_card, load_qa_cards
 
 INDEX_DIR = Path("derived") / "index"
 
@@ -374,7 +375,50 @@ def handle_interaction(
             total_ms=int((time.perf_counter() - started) * 1000),
         )
 
-    # qa / seek：没有 ASR / LLM / 场景时间轴，只能给引导。
+    if kind is InteractionKind.qa:
+        if package_root is not None and text:
+            cards = load_qa_cards(package_root)
+            match = find_qa_card(cards, text, request.input.language)
+            if match is not None:
+                card = match.card
+                anchor = card.video_anchor
+                scene_id = anchor.scene_id if anchor else None
+                time_ms = anchor.start_ms if anchor else None
+                return _response(
+                    request,
+                    kind,
+                    request_id=request_id,
+                    action=InteractionAction(
+                        type=ActionType.show_card,
+                        scene_id=scene_id,
+                        time_ms=time_ms,
+                    ),
+                    answer=AnswerPayload(
+                        text=match.answer,
+                        language=request.input.language,
+                        tier=match.tier,
+                        evidence=list(card.evidence),
+                        scene_id=scene_id,
+                        time_ms=time_ms,
+                    ),
+                    status="ok",
+                    route_ms=int(
+                        (time.perf_counter() - route_started) * 1000
+                    ),
+                    total_ms=int(
+                        (time.perf_counter() - started) * 1000
+                    ),
+                )
+
+        return _fallback(
+            request,
+            kind,
+            request_id=request_id,
+            route_ms=int((time.perf_counter() - route_started) * 1000),
+            total_ms=int((time.perf_counter() - started) * 1000),
+            message="没有找到对应的问答卡；可以换一种问法或先查看相关画面。",
+        )
+
     return _fallback(
         request,
         kind,
