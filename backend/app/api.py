@@ -37,7 +37,12 @@ from backend.app.store import (
     InvalidBookPackageError,
 )
 from backend.app.validation import ContractError
-from backend.app.plans import load_scene_plan, load_story_plan
+from backend.app.plans import (
+    load_generation_result,
+    load_scene_plan,
+    load_story_plan,
+    load_timeline,
+)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -241,6 +246,20 @@ def get_scene_plan(book_id: str) -> dict[str, object]:
     package_root = books.root / package.book_id
     scene_plan = load_scene_plan(package_root)
     return scene_plan.model_dump(mode="json")
+
+@app.get("/api/books/{book_id}/generation-result")
+def get_generation_result(book_id: str) -> dict[str, object]:
+    package = books.load(book_id)
+    package_root = books.root / package.book_id
+    result = load_generation_result(package_root)
+    return result.model_dump(mode="json")
+
+
+@app.get("/api/books/{book_id}/timeline")
+def get_timeline(book_id: str) -> dict[str, object]:
+    package = books.load(book_id)
+    package_root = books.root / package.book_id
+    return load_timeline(package_root)
 
 @app.get("/api/books/{book_id}/assets/{asset_path:path}")
 def get_book_asset(book_id: str, asset_path: str) -> FileResponse:
