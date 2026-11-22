@@ -118,13 +118,13 @@ class GenerationPlanApiTests(unittest.TestCase):
         self.assertEqual("scene-zh-99-001-001", response.json()["scenes"][0]["scene_id"])
 
     def test_missing_plan_returns_404(self) -> None:
-        (self.package_root / "scene" / "scene_plan.json").unlink()
+        (self.package_root/ "derived"/ "scene"/ "scene_plan.json").unlink()
         response = self.client.get(f"/api/books/{BOOK_ID}/scene-plan")
         self.assertEqual(404, response.status_code)
         self.assertEqual("file_not_found", response.json()["error"]["code"])
 
     def test_invalid_plan_returns_422(self) -> None:
-        path = self.package_root / "story" / "story_plan.json"
+        path = (self.package_root / "derived"/ "story"/ "story_plan.json")
         data = json.loads(path.read_text(encoding="utf-8"))
         data["schema_version"] = "1.0.0"
         path.write_text(json.dumps(data), encoding="utf-8")
