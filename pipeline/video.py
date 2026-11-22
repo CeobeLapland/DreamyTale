@@ -12,11 +12,15 @@ animation, exactly as the contract's VIDEO_FAILED row says.
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import tempfile
 import time
+import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
 from contracts.models import (
     BookGenerationResult,
     GenerationManifest,
@@ -37,6 +41,62 @@ THUMB_DIR = Path("derived") / "video" / "thumbs"
 FPS = 12
 FRAME_SIZE = (1280, 720)
 PUSH_IN = 0.08
+
+
+def _ascii_temp_root() -> Path:
+    override = os.environ.get("DREAMYTALE_TMP_DIR")
+    if override:
+        root = Path(override).expanduser().resolve()
+    elif os.name == "nt":
+        drive = DATA.drive or Path.cwd().drive or "C:"
+        root = Path(f"{drive}\\dreamytale-tmp")
+    else:
+        root = Path(tempfile.gettempdir()) / "dreamytale-tmp"
+
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+@contextmanager
+def _ascii_video_output(final_path: Path):
+    temporary = _ascii_temp_root() / f"{uuid.uuid4().hex}{final_path.suffix}"
+    try:
+        yield temporary
+        final_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(temporary, final_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+@contextmanager
+def _ascii_video_input(source_path: Path):
+    temporary = _ascii_temp_root() / f"{uuid.uuid4().hex}{source_path.suffix}"
+    shutil.copyfile(source_path, temporary)
+    try:
+        yield temporary
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _imread_unicode(path: Path):
+    import cv2
+    import numpy as np
+
+    data = np.fromfile(path, dtype=np.uint8)
+    image = cv2.imdecode(data, cv2.IMREAD_COLOR)
+    if image is None:
+        raise FileNotFoundError(path)
+    return image
+
+
+def _imwrite_unicode(path: Path, image) -> None:
+    import cv2
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ok, encoded = cv2.imencode(path.suffix or ".png", image)
+    if not ok:
+        raise RuntimeError(f"cannot encode image for {path}")
+    encoded.tofile(path)
 
 
 def _now() -> datetime:
@@ -95,86 +155,112 @@ def render_scene_animation(
     """Render one scene as a slow page animation."""
     import cv2
 
-    page = cv2.imread(str(image_path))
-    if page is None:
-        raise FileNotFoundError(image_path)
+    page = _imread_unicode(image_path)
     canvas, inner_width, inner_height = _letterbox(page, size)
 
     frames = max(1, int(duration_ms / 1000 * fps))
     motion = _motion(camera)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    writer = cv2.VideoWriter(
-        str(out_path),
-        cv2.VideoWriter_fourcc(*"mp4v"),
-        fps,
-        size,
-    )
-    if not writer.isOpened():
-        raise RuntimeError(f"cannot open video writer for {out_path}")
-    try:
-        for index in range(frames):
-            t = index / max(1, frames - 1)
-            if motion == "push_in":
-                zoom = 1.0 + PUSH_IN * t
-                pan_x, pan_y = 0.5, 0.5 - 0.05 * t
-            elif motion == "pull_out":
-                zoom = 1.0 + PUSH_IN * (1 - t)
-                pan_x, pan_y = 0.5, 0.5 + 0.05 * t
-            elif motion == "pan":
-                zoom = 1.0 + PUSH_IN * 0.6
-                pan_x, pan_y = t, 0.5
-            else:
-                zoom = 1.0 + PUSH_IN * 0.3
-                pan_x, pan_y = 0.5, 0.5
-            crop = _crop(canvas, inner_width, inner_height, zoom, pan_x, pan_y)
-            frame = cv2.resize(crop, size, interpolation=cv2.INTER_LINEAR)
-            writer.write(frame)
-    finally:
-        writer.release()
+
+    with _ascii_video_output(out_path) as temporary_output:
+        writer = cv2.VideoWriter(
+            str(temporary_output),
+            cv2.VideoWriter_fourcc(*"mp4v"),
+            fps,
+            size,
+        )
+        if not writer.isOpened():
+            raise RuntimeError(f"cannot open video writer for {out_path}")
+
+        try:
+            for index in range(frames):
+                t = index / max(1, frames - 1)
+                if motion == "push_in":
+                    zoom = 1.0 + PUSH_IN * t
+                    pan_x, pan_y = 0.5, 0.5 - 0.05 * t
+                elif motion == "pull_out":
+                    zoom = 1.0 + PUSH_IN * (1 - t)
+                    pan_x, pan_y = 0.5, 0.5 + 0.05 * t
+                elif motion == "pan":
+                    zoom = 1.0 + PUSH_IN * 0.6
+                    pan_x, pan_y = t, 0.5
+                else:
+                    zoom = 1.0 + PUSH_IN * 0.3
+                    pan_x, pan_y = 0.5, 0.5
+
+                crop = _crop(
+                    canvas,
+                    inner_width,
+                    inner_height,
+                    zoom,
+                    pan_x,
+                    pan_y,
+                )
+                frame = cv2.resize(
+                    crop,
+                    size,
+                    interpolation=cv2.INTER_LINEAR,
+                )
+                writer.write(frame)
+        finally:
+            writer.release()
+
     return out_path
 
 
 def _thumbnail(image_path: Path, out_path: Path) -> Path:
-    import cv2
-
-    page = cv2.imread(str(image_path))
-    if page is None:
-        raise FileNotFoundError(image_path)
+    page = _imread_unicode(image_path)
     canvas, _, _ = _letterbox(page, FRAME_SIZE)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(out_path), canvas)
+    _imwrite_unicode(out_path, canvas)
     return out_path
 
 
-def compose_book(spec: BookSpec, plan: dict[str, Any], segments: list[dict[str, Any]]) -> Path:
-    """Concatenate the scene clips into one book video."""
+def compose_book(
+    spec: BookSpec,
+    plan: dict[str, Any],
+    segments: list[dict[str, Any]],
+) -> Path:
+    """Concatenate scene clips into one book video."""
     import cv2
 
     book_path = DATA / spec.book_id / VIDEO_DIR / "book.mp4"
-    book_path.parent.mkdir(parents=True, exist_ok=True)
-    writer = cv2.VideoWriter(
-        str(book_path),
-        cv2.VideoWriter_fourcc(*"mp4v"),
-        FPS,
-        FRAME_SIZE,
-    )
-    if not writer.isOpened():
-        raise RuntimeError(f"cannot open video writer for {book_path}")
-    try:
-        for segment in segments:
-            # segment["path"] is package relative (contract rule)
-            clip = DATA / spec.book_id / segment["path"]
-            capture = cv2.VideoCapture(str(clip))
-            while True:
-                ok, frame = capture.read()
-                if not ok:
-                    break
-                if frame.shape[1] != FRAME_SIZE[0] or frame.shape[0] != FRAME_SIZE[1]:
-                    frame = cv2.resize(frame, FRAME_SIZE, interpolation=cv2.INTER_LINEAR)
-                writer.write(frame)
-            capture.release()
-    finally:
-        writer.release()
+
+    with _ascii_video_output(book_path) as temporary_book:
+        writer = cv2.VideoWriter(
+            str(temporary_book),
+            cv2.VideoWriter_fourcc(*"mp4v"),
+            FPS,
+            FRAME_SIZE,
+        )
+        if not writer.isOpened():
+            raise RuntimeError(f"cannot open video writer for {book_path}")
+
+        try:
+            for segment in segments:
+                clip = DATA / spec.book_id / segment["path"]
+
+                with _ascii_video_input(clip) as temporary_clip:
+                    capture = cv2.VideoCapture(str(temporary_clip))
+                    try:
+                        while True:
+                            ok, frame = capture.read()
+                            if not ok:
+                                break
+                            if (
+                                frame.shape[1] != FRAME_SIZE[0]
+                                or frame.shape[0] != FRAME_SIZE[1]
+                            ):
+                                frame = cv2.resize(
+                                    frame,
+                                    FRAME_SIZE,
+                                    interpolation=cv2.INTER_LINEAR,
+                                )
+                            writer.write(frame)
+                    finally:
+                        capture.release()
+        finally:
+            writer.release()
+
     return book_path
 
 
