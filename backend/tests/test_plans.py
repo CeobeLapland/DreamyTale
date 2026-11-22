@@ -26,8 +26,8 @@ class GenerationPlanApiTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.books_root = Path(self.temporary.name) / "books"
         self.package_root = write_package(self.books_root)
-        (self.package_root / "story").mkdir()
-        (self.package_root / "scene").mkdir()
+        (self.package_root / "derived" / "story").mkdir(parents=True)
+        (self.package_root / "derived" / "scene").mkdir(parents=True)
 
         now = datetime(2026, 11, 21, tzinfo=UTC)
         story = StoryPlan(
@@ -88,11 +88,11 @@ class GenerationPlanApiTests(unittest.TestCase):
             created_at=now,
         )
 
-        (self.package_root / "story" / "story_plan.json").write_text(
+        (self.package_root / "derived" / "story" / "story_plan.json").write_text(
             story.model_dump_json(indent=2),
             encoding="utf-8",
         )
-        (self.package_root / "scene" / "scene_plan.json").write_text(
+        (self.package_root / "derived" / "scene" / "scene_plan.json").write_text(
             scene_plan.model_dump_json(indent=2),
             encoding="utf-8",
         )
