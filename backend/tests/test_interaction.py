@@ -41,7 +41,7 @@ class InteractionTests(unittest.TestCase):
 
         self.assertEqual("fallback", response.status)
         self.assertEqual(AnswerTier.guide, response.answer.tier)
-        self.assertIn("语音识别", response.answer.text)
+        self.assertIn("问答卡", response.answer.text)
         self.assertEqual("qa_runtime_not_configured", response.error.code)
         self.assertFalse(response.error.retryable)
 
