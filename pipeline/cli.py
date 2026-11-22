@@ -28,9 +28,11 @@ from .models import build_llm, build_ocr, build_vlm, config_path, status as prov
 from .narrative import run_vlm_all
 from .query_sets import parse_script
 from .review import render_overlay
+from .retime import retime_book
 from .scene import run_scene
 from .story import run_story
 from .tts import run_tts
+from .final import render_final
 from .understanding import run_ocr_all
 from .video import run_video
 
@@ -233,6 +235,21 @@ def cmd_scene(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_retime(args: argparse.Namespace) -> int:
+    specs = _select(args)
+    if not specs:
+        raise SystemExit("select --all or --book")
+
+    for spec in specs:
+        report = retime_book(spec)
+        print(
+            f"  {spec.book_id}: changed_pages={report['changed_pages']} "
+            f"total={report['total_ms']}ms "
+            f"({report['seconds']}s)"
+        )
+    return 0
+
+
 def cmd_index(args: argparse.Namespace) -> int:
     specs = _select(args)
     if not specs:
@@ -256,6 +273,22 @@ def cmd_video(args: argparse.Namespace) -> int:
             f"  {spec.book_id}: scenes={report['scenes']} pages={report['pages']} "
             f"total={report['total_ms']}ms errors={len(report['errors'])} "
             f"{report['seconds']}s -> {report['book_video']}"
+        )
+    return 0
+
+
+def cmd_final(args: argparse.Namespace) -> int:
+    specs = _select(args)
+    if not specs:
+        raise SystemExit("select --all or --book")
+
+    for spec in specs:
+        report = render_final(spec)
+        print(
+            f"  {spec.book_id}: frames={report['frames']} "
+            f"subtitles={report['subtitle_entries']} "
+            f"audio_pages={report['audio_pages']} "
+            f"-> {report['final_video']}"
         )
     return 0
 
@@ -354,6 +387,13 @@ def build_parser() -> argparse.ArgumentParser:
     add_selection(p_scene)
     p_scene.set_defaults(func=cmd_scene)
 
+    p_retime = sub.add_parser(
+        "retime",
+        help="retime scenes and subtitles from narration audio durations",
+    )
+    add_selection(p_retime)
+    p_retime.set_defaults(func=cmd_retime)
+
     p_index = sub.add_parser("index", help="build the search index and the scene index")
     add_selection(p_index)
     p_index.set_defaults(func=cmd_index)
@@ -362,6 +402,13 @@ def build_parser() -> argparse.ArgumentParser:
     add_selection(p_video)
     p_video.add_argument("--limit-pages", type=int, help="only render up to this page")
     p_video.set_defaults(func=cmd_video)
+
+    p_final = sub.add_parser(
+        "final",
+        help="burn subtitles and mux narration into final.mp4",
+    )
+    add_selection(p_final)
+    p_final.set_defaults(func=cmd_final)
 
     p_tts = sub.add_parser("tts", help="narration audio via Edge TTS (optional)")
     add_selection(p_tts)
