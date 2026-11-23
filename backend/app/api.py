@@ -26,6 +26,7 @@ from backend.app.ingest import ingest_book
 from backend.app.ingest_jobs import IngestionJobManager
 from backend.app.interaction import handle_interaction
 from backend.app.jobs import JobManager, JobNotFoundError, JobStore
+from backend.app.generation_runner import PipelineGenerationRunner
 from backend.app.models import (
     InteractionKind,
     InteractionRequest,
@@ -80,7 +81,10 @@ app.add_middleware(
 
 books = BookStore(BOOK_ROOT)
 job_store = JobStore(JOB_STORE_PATH)
-jobs = JobManager(job_store)
+jobs = JobManager(
+    job_store,
+    runner=PipelineGenerationRunner(),
+)
 ingestions = IngestionJobManager(
     job_store,
     BOOK_ROOT,
