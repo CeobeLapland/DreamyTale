@@ -43,7 +43,26 @@ vlm:
 # Future stages use the same pattern:
 # tts:   { provider: edge_tts }
 # asr:   { provider: faster_whisper }
-# i2v:   { provider: null }
+i2v:
+  provider: volcengine_ark
+  fallback: [null]
+
+  max_scenes: 100
+  scene_ids: []
+
+  volcengine_ark:
+    base_url: https://ark.cn-beijing.volces.com/api/v3
+    api_key_env: ARK_API_KEY
+    model_env: ARK_MODEL_ID
+    model: ""
+    create_path: /contents/generations/tasks
+    query_path: /contents/generations/tasks/{task_id}
+    timeout: 900
+    poll_interval: 5
+    image_mode: data_url
+    image_first: false
+    ratio: adaptive
+    extra: {}
 
 # Story and scene planning: text only, same local endpoint as the VLM.
 llm:

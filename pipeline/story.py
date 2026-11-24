@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import time
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,7 @@ from contracts.models import (
     BookPackage,
     Character,
     Dialogue,
+    Page,
     PageStory,
     StoryPlan,
     StyleBible,
@@ -123,7 +125,6 @@ def _language_rule(language: str) -> str:
         )
     return "所有字段用中文书写。"
 
-
 def _page_digest(
     book: BookPackage,
     narratives: dict[int, dict[str, Any]],
@@ -131,14 +132,15 @@ def _page_digest(
 ) -> str:
     lines: list[str] = []
     for page in book.pages:
-        text = page.text.strip()
-        narrative = str(narratives.get(page.index, {}).get("text") or "").strip()
-        source = text or narrative
+        page_text = _story_page_text(page, book.language)
+        narrative = str(
+            narratives.get(page.index, {}).get("text") or ""
+        ).strip()
+        source = narrative or page_text
         if not source:
             continue
         lines.append(f"[p{page.index}] {source[:limit]}")
     return "\n".join(lines)
-
 
 def _clean_list(values: Any, limit: int = 8) -> list[str]:
     if not isinstance(values, list):
@@ -186,6 +188,65 @@ def _clean_characters(raw: Any, book_id: str) -> list[Character]:
         )
     return characters
 
+def _clean_page_text_for_story(text: str) -> str:
+    """Drop page numbers, hotspot labels and tiny OCR fragments."""
+    lines: list[str] = []
+    for raw_line in text.splitlines():
+        line = re.sub(r"\s+", " ", raw_line).strip()
+        if not line:
+            continue
+
+        if re.fullmatch(
+            r"[（(]?\s*(?:第\s*)?\d+\s*(?:页)?\s*[）).。]?",
+            line,
+        ):
+            continue
+
+        if re.fullmatch(r"[\d\W_]+", line):
+            continue
+
+        words = line.split()
+        letters = "".join(ch for ch in line if ch.isalpha())
+        uppercase_words = sum(
+            1 for word in words if word and word.isupper()
+        )
+
+        if letters and letters.isupper() and len(words) <= 5:
+            continue
+        if len(words) <= 4 and uppercase_words >= max(1, len(words) - 1):
+            continue
+        if len(words) == 1 and len(line) <= 20:
+            continue
+
+        lines.append(line)
+
+    return " ".join(lines).strip()
+
+def _story_page_text(page: Page, language: str) -> str:
+    """Filter English OCR labels before they reach subtitles and TTS."""
+    page_text = _clean_page_text_for_story(page.text)
+
+    if not str(language).lower().startswith("en"):
+        return page_text
+    if page.text_source != "ocr":
+        return page_text
+
+    blocks: list[str] = []
+    for block in sorted(page.blocks, key=lambda item: item.reading_order):
+        if block.source != "ocr":
+            continue
+
+        text = _clean_page_text_for_story(block.text)
+        if not text:
+            continue
+
+        words = re.findall(r"[A-Za-z]+", text)
+        if len(words) >= 3 or (
+            len(words) >= 2 and re.search(r"[.!?]", text)
+        ):
+            blocks.append(text)
+
+    return _clean_page_text_for_story(" ".join(blocks))
 
 def _fallback_beats(
     book_id: str,
@@ -194,10 +255,11 @@ def _fallback_beats(
     narrative: str,
     entities: list[str],
 ) -> list[Beat]:
-    """Contract fallback (STORY_FAILED -> 用原文旁白): the page text is the beat."""
-    body = (page_text or narrative or "").strip()
-    description = body[:120] if body else f"第 {page_index} 页"
-    narration = body if body else f"（第 {page_index} 页）"
+    """Use real page text; never insert fake page-number narration."""
+    body = _clean_page_text_for_story(narrative or page_text or "")
+    description = body[:120] if body else "The story continues."
+    narration = body
+
     return [
         Beat(
             beat_id=f"beat-{book_id}-{page_index:03d}-01",
@@ -387,9 +449,21 @@ def run_story(spec: BookSpec, llm: Any) -> dict[str, Any]:
     keyword_map: dict[str, list[str]] = {}
     previous_state: str | None = None
     for page in book.pages:
-        narrative = str(narratives.get(page.index, {}).get("text") or "").strip()
-        entities = _clean_list(narratives.get(page.index, {}).get("entities"), 8)
-        fallback = _fallback_beats(spec.book_id, page.index, page.text, narrative, entities)
+        page_text = _story_page_text(page, book.language)
+        narrative = str(
+            narratives.get(page.index, {}).get("text") or ""
+        ).strip()
+        entities = _clean_list(
+            narratives.get(page.index, {}).get("entities"),
+            8,
+        )
+        fallback = _fallback_beats(
+            spec.book_id,
+            page.index,
+            page_text,
+            narrative,
+            entities,
+        )
 
         beats: list[Beat] = []
         if available:
@@ -398,7 +472,7 @@ def run_story(spec: BookSpec, llm: Any) -> dict[str, Any]:
                     _page_plan_prompt(
                         book,
                         page.index,
-                        page.text.strip(),
+                        page_text,
                         narrative,
                         logline,
                         characters,
@@ -406,11 +480,19 @@ def run_story(spec: BookSpec, llm: Any) -> dict[str, Any]:
                     ),
                     json_schema=BEAT_SCHEMA,
                 )
-                beats, keywords = _clean_beats(spec.book_id, page.index, result.data, fallback)
+                beats, keywords = _clean_beats(
+                    spec.book_id,
+                    page.index,
+                    result.data,
+                    fallback,
+                )
                 keyword_map.update(keywords)
             except Exception as exc:  # noqa: BLE001
                 report["errors"].append(
-                    {"page_index": page.index, "error": f"{type(exc).__name__}: {exc}"}
+                    {
+                        "page_index": page.index,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
                 )
                 beats = fallback
         else:
@@ -420,6 +502,7 @@ def run_story(spec: BookSpec, llm: Any) -> dict[str, Any]:
             report["pages_fallback"] += 1
         else:
             report["pages_llm"] += 1
+
         pages.append(
             PageStory(
                 page_index=page.index,
