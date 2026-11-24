@@ -607,22 +607,32 @@ def run_video(spec: BookSpec, limit_pages: int | None = None) -> dict[str, Any]:
         stages=[
             ManifestStage(
                 name="video",
-                provider="local",
-                model="page-animation-v1",
+                provider=i2v_provider.name if i2v_used else "local",
+                model=",".join(sorted(used_video_models)),
                 model_version="v1",
                 prompt_version="scene-v1",
-                params={"fps": FPS, "size": list(frame_size)},
+                params={
+                    "fps": FPS,
+                    "size": list(frame_size),
+                    "i2v_scenes": i2v_used,
+                    "page_animation_scenes": max(0, len(segments) - i2v_used),
+                    "i2v_fallbacks": fallbacks,
+                },
                 seed=None,
                 started_at=_now(),
                 duration_ms=int((time.perf_counter() - started) * 1000),
                 status="completed" if segments and not errors else "degraded",
-                error_code=None if not errors else "VIDEO_FAILED",
-                degraded=bool(errors),
+                error_code=(
+                    "VIDEO_FAILED"
+                    if errors
+                    else ("I2V_FALLBACK" if fallbacks else None)
+                ),
+                degraded=bool(errors or fallbacks),
                 output_hash=None,
             )
         ],
         artifacts=artifacts,
-        model_versions={"video": "page-animation-v1"},
+        model_versions={"video": ",".join(sorted(used_video_models))},
         prompt_versions={"story": "story-v1", "scene": "scene-v1"},
         created_at=_now(),
         status="completed" if segments and not errors else "degraded",
@@ -641,6 +651,8 @@ def run_video(spec: BookSpec, limit_pages: int | None = None) -> dict[str, Any]:
         "book_video": str(book_video) if book_video else None,
         "result_path": str(result_path),
         "manifest_path": str(manifest_path),
+        "i2v_scenes": i2v_used,
+        "fallback_scenes": fallbacks,
         "errors": errors,
         "seconds": round(time.perf_counter() - started, 2),
     }

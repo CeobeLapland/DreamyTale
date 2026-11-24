@@ -43,9 +43,14 @@ vlm:
 # Future stages use the same pattern:
 # tts:   { provider: edge_tts }
 i2v:
+  # 字节系图生视频（火山方舟 v3 / 豆包 Seedance 等）。模型 ID 以控制台为准，
+  # 用 ARK_MODEL_ID 传，不写死在仓库里。
+  # 没配 key/model 时 video 阶段自动退回页动画，并在 manifest 里标降级。
   provider: volcengine_ark
   fallback: [null]
 
+  # 0 = 不启用；100 = 所有场景都走 I2V（成本/耗时最高）。
+  # 演示建议先设 2–4 个 hero scene，或在 scene_ids 里点名。
   max_scenes: 100
   scene_ids: []
 

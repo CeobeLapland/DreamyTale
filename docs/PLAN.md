@@ -63,7 +63,7 @@
 | V-2 | ScenePlan + timeline + subtitles（ARCH §3.1） | `[完成]` 六本有 `scene_plan.json`、`timeline.json` | 需检查字幕与页时长连续性 | 字幕不越界、不空洞 | B/C |
 | V-3 | aliases/objects/hotspot_ids（DATA §8.2） | `[部分]` aliases 有；`objects` 与 `hotspot_ids` 为 0 | 把页内物体框与热区写进 Scene | 视频帧上能点物体 | B |
 | V-4 | 页动画视频（ARCH §3.6） | `[完成]` 六本 `book.mp4`、分段 mp4 | 无 | 可播放、页间连贯 | B |
-| V-5 | 重点页 I2V（ARCH §3.6） | `[部分]` 适配器与配置在；队友已用外部 API 生成 zh-01/en-01 的完整 AI 动画成片，已转 H.264 并接入视频变体；本仓库还不能自己生成 | 拿到 API key/模型 ID 后把 I2V 接进 `pipeline/video.py` | 重点页有 I2V 或明确降级原因 | B/A |
+| V-5 | 重点页 I2V（ARCH §3.6） | `[部分]` `run_video` 已完整接入 I2V：`scene_ids`/`max_scenes` 选择、失败回退页动画、manifest 记录 i2v/fallback；fake provider 测试通过。缺 ARK_API_KEY/ARK_MODEL_ID；队友 zh-01/en-01 成片已作为视频变体接入 | 拿到字节/火山方舟 key 与模型 ID 后即可真跑 | 重点页有 I2V 或明确降级原因 | B/A |
 | V-6 | 风格 bible/提示词/关键帧（ARCH §3.2） | `[部分]` 风格在 StoryPlan、prompt 在 ScenePlan、keyframes 有 | 需要 ArtDirector 阶段汇总与校验 | `derived/art/art_direction.json` 完整 | B |
 | V-7 | 风格闸门（SSIM/颜色直方图/CLIP，ARCH §3.6） | `[未做]` `style_score` 为空 | 实现每页首帧与原页图相似度评分 | 报告给出平均分与最低页 | B |
 | V-8 | 旁白/台词 TTS（ARCH §3.7） | `[完成]` edge-tts 已接入；六本共 120 页旁白（中文 12×3，英文 28×3） | 无 | 六本有旁白音轨 | B |
@@ -333,6 +333,7 @@
 - 新增 `GET /api/providers`：返回 OCR/VLM/LLM/ASR/I2V/TTS 的配置 provider、模型、可用状态；前端“生成链路”展示。
 - 语音实测（官方 WAV）：`01.wav` → 转写“播放”，control，ASR 348ms / total 353ms；`14.wav` → “为什么倒了”，qa strong，ASR 252ms / total 260ms；Turn/Trace 均落盘。
 - 外部 I2V 成片接入：`data/remote/` 里队友用 API 生成的 zh-01/en-01 成片，转 H.264 后放到 `derived/video/final-i2v.mp4`，写 `variants.json`；新增 `GET /api/books/{id}/video-variants`，前端“视频版本”可在页动画和 AI 动画之间切换。实测浏览器可播、有音轨。
+- I2V 代码补齐：`pipeline/video.py` 的 `scene_ids`/`max_scenes` 选择、失败回退、manifest 记录（provider/model/i2v_scenes/fallback）已用 fake provider 测试；字节系（火山方舟/豆包 Seedance）适配器在 `pipeline/models/volcengine_i2v.py`，只差 key 和模型 ID。
 - `/review` 改为跳转 `/reader/#review`，删除独立审核页。
 - 测试：新增 `backend/tests/test_conductor.py`、`tests/test_critic.py`；相关后端测试 38 passed，critic/orchestrator 10 passed。
 

@@ -335,21 +335,29 @@ def _run_video(spec: BookSpec) -> StageOutcome:
     report = run_video(spec)
     if not report.get("book_video"):
         raise RuntimeError("video pipeline produced no book video")
+    i2v_scenes = int(report.get("i2v_scenes", 0) or 0)
+    fallback_scenes = int(report.get("fallback_scenes", 0) or 0)
+    errors = list(report.get("errors", []) or [])
     return StageOutcome(
         outputs=[
             "derived/video/book.mp4",
             "derived/generation_result.json",
         ],
-        provider="local",
-        model="page-animation-v1",
+        provider="volcengine_ark" if i2v_scenes else "local",
+        model="i2v+page-animation" if i2v_scenes else "page-animation-v1",
         params={
             "scenes": report.get("scenes", 0),
             "pages": report.get("pages", 0),
-            "errors": len(report.get("errors", [])),
+            "i2v_scenes": i2v_scenes,
+            "fallback_scenes": fallback_scenes,
+            "errors": len(errors),
         },
-        degraded=bool(report.get("errors")),
-        error_code="VIDEO_PARTIAL" if report.get("errors") else None,
-        detail=f"pages={report.get('pages', 0)}",
+        degraded=bool(errors or fallback_scenes),
+        error_code="VIDEO_PARTIAL" if (errors or fallback_scenes) else None,
+        detail=(
+            f"pages={report.get('pages', 0)} i2v={i2v_scenes} "
+            f"fallback={fallback_scenes}"
+        ),
     )
 
 
