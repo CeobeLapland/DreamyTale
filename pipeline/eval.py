@@ -148,7 +148,11 @@ def _click_target(case: EvalCase) -> tuple[int, int, int] | None:
     return None
 
 
-def _request_for(case: EvalCase, base_url: str) -> tuple[InteractionRequest | None, str]:
+def _request_for(
+    case: EvalCase,
+    base_url: str,
+    current_page: int | None = None,
+) -> tuple[InteractionRequest | None, str]:
     expected = case.expected or {}
     text = case.query_text or ""
     if case.kind is InteractionKind.control:
@@ -171,6 +175,10 @@ def _request_for(case: EvalCase, base_url: str) -> tuple[InteractionRequest | No
             return None, f"{base_url.rstrip('/')}/api/interact"
         page_index, x, y = target
         click = {"x_px": x, "y_px": y}
+    else:
+        # 真实播放器总会带上"我现在在第几页"，
+        # 引导式回答要靠它决定翻到哪一页。
+        page_index = current_page
 
     request = InteractionRequest(
         request_id=None,
@@ -184,7 +192,7 @@ def _request_for(case: EvalCase, base_url: str) -> tuple[InteractionRequest | No
             "language": case.lang,
             **({"click": click} if click else {}),
         },
-        context={},
+        context={"last_page_index": page_index} if page_index else {},
     )
     return request, f"{base_url.rstrip('/')}/api/interact"
 
@@ -273,15 +281,25 @@ def _judge(case: EvalCase, payload: dict[str, Any]) -> tuple[str, str]:
         return "wrong", f"hotspot={label[:20]} expected={wanted[:20]}"
 
     if case.kind is InteractionKind.qa:
-        if text and answer.get("tier"):
+        tier = str(answer.get("tier") or "")
+        if tier == "guide":
+            # 引导不是答案：它承认没找到、翻到相关页、反问一句。
+            # 契约 §6.2 的三档里 strong/weak 才是回答，guide 是降级。
+            return "fallback", "guide: turned the page instead of answering"
+        if text and tier:
             return "ok", ""
         return "miss", "no answer"
 
     return "miss", "unknown kind"
 
 
-def run_case(case: EvalCase, base_url: str, timeout: float = 120.0) -> EvalResult:
-    request, url = _request_for(case, base_url)
+def run_case(
+    case: EvalCase,
+    base_url: str,
+    timeout: float = 120.0,
+    current_page: int | None = None,
+) -> EvalResult:
+    request, url = _request_for(case, base_url, current_page)
     if request is None:
         # The action cannot even be asked: there is no hotspot to click.
         return EvalResult(
@@ -346,6 +364,7 @@ def run_case(case: EvalCase, base_url: str, timeout: float = 120.0) -> EvalResul
         status=str(payload.get("status") or "error"),
         verdict=verdict,
         answer_text=str(answer.get("text") or "")[:400],
+        tier=str(answer.get("tier") or "") or None,
         action=action or None,
         scene_id=action.get("scene_id"),
         evidence=answer.get("evidence") or [],
@@ -383,9 +402,19 @@ def summarize(results: list[EvalResult], cases: list[EvalCase]) -> dict[str, Any
         1 for result in results if result.verdict == "ok" and result.case_id in mandatory_ids
     )
 
+    # 按回答档位分桶。引导（guide）不是答案：它承认没找到、翻页、反问。
+    # 把它混进正确率，正确率就变成了"引导得多"的数字。
+    by_tier: dict[str, int] = {}
+    for result in results:
+        tier = result.tier or "none"
+        by_tier[tier] = by_tier.get(tier, 0) + 1
+    qa_guided = sum(1 for result in qa_results if result.tier == "guide")
+
     return {
         "by_kind": accuracy,
         "by_kind_detail": by_kind,
+        "by_tier": by_tier,
+        "qa_guided": qa_guided,
         "total": len(results),
         "ok": sum(1 for result in results if result.verdict == "ok"),
         "fallback_rate": round(fallbacks / len(results), 3) if results else 0.0,
@@ -397,6 +426,22 @@ def summarize(results: list[EvalResult], cases: list[EvalCase]) -> dict[str, Any
         "mandatory_ok": mandatory_ok,
         "mandatory_total": len(mandatory_ids),
     }
+
+
+def _landed_page(result: EvalResult, book_id: str) -> int | None:
+    """这次回答把播放器带到了第几页。
+
+    seek 会跳到某个场景，qa 会指向证据所在的页——播放器就跟着走。
+    """
+    if result.scene_id:
+        for scene in load_scene_index(book_id).get("scenes", []):
+            if scene.get("scene_id") == result.scene_id:
+                return int(scene.get("page_index") or 0) or None
+    for evidence in result.evidence:
+        page_index = int(getattr(evidence, "page_index", 0) or 0)
+        if page_index:
+            return page_index
+    return None
 
 
 def run_eval(
@@ -412,8 +457,16 @@ def run_eval(
     started = _now()
 
     results: list[EvalResult] = []
+    # 播放器现在的位置：真实会话里孩子看着哪一页，
+    # 下一句提问就会带着这一页过来。回放要还原这件事，
+    # 否则引导式回答拿不到"当前页"，只能盲猜。
+    current_page: dict[str, int] = {}
     for case in cases:
-        results.append(run_case(case, base_url))
+        page = current_page.get(case.book_id)
+        results.append(run_case(case, base_url, current_page=page))
+        landed = _landed_page(results[-1], case.book_id)
+        if landed:
+            current_page[case.book_id] = landed
         print(
             f"  {case.case_id} {case.kind.value:9s} -> {results[-1].verdict}",
             end="\r",
@@ -424,6 +477,9 @@ def run_eval(
     metrics = summarize(results, cases)
     run_root = DATA.parent.parent / RUNS_DIR / run_id
     run_root.mkdir(parents=True, exist_ok=True)
+    with (run_root / "cases.jsonl").open("w", encoding="utf-8") as handle:
+        for case in cases:
+            handle.write(case.model_dump_json(exclude_none=True) + "\n")
     results_path = run_root / "results.jsonl"
     with results_path.open("w", encoding="utf-8") as handle:
         for result in results:

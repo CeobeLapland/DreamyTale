@@ -41,6 +41,7 @@ from .manual import auto_narrative_records
 
 KNOWLEDGE_DIR = Path("derived") / "knowledge"
 CARDS_FILE = "cards.jsonl"
+UNCOVERED_FILE = "uncovered.json"
 
 _INTENTS = (
     (("谁", "who", "whose"), QaIntent.identify),
@@ -251,11 +252,14 @@ def _cards_from_queries(
     scenes_by_page: dict[int, list[dict[str, Any]]],
     language: str,
     llm: Any = None,
+    uncovered: list[str] | None = None,
 ) -> list[QaCard]:
     query_sets = sorted((DATA / spec.book_id / "query_sets").glob("*.json"))
     if not query_sets:
         return []
     query_set = json.loads(query_sets[0].read_text(encoding="utf-8"))
+    if uncovered is None:
+        uncovered = []
 
     cards: list[QaCard] = []
     seen: set[str] = set()
@@ -281,6 +285,9 @@ def _cards_from_queries(
                 if page is None or score < 2:
                     # No page really talks about this question; a card without
                     # evidence would only look like a confident wrong answer.
+                    # The question is written down instead, so the gap is
+                    # visible rather than silently missing.
+                    uncovered.append(question)
                     continue
                 quote = _pick_quote(question, page)
                 strong, weak, guide = _answer_tier(question, page, quote)
@@ -361,12 +368,14 @@ def build_knowledge(spec: BookSpec, llm: Any = None) -> dict[str, Any]:
         scenes_by_page.setdefault(int(scene.get("page_index") or 0), []).append(scene)
 
     started = time.perf_counter()
+    uncovered: list[str] = []
     cards = _cards_from_queries(
         spec,
         pages,
         scenes_by_page,
         str(book.get("language") or "zh-CN"),
         llm=llm,
+        uncovered=uncovered,
     )
 
     out_dir = DATA / spec.book_id / KNOWLEDGE_DIR
@@ -376,9 +385,23 @@ def build_knowledge(spec: BookSpec, llm: Any = None) -> dict[str, Any]:
         for card in cards:
             handle.write(card.model_dump_json(exclude_none=False) + "\n")
 
+    # 答不上的问题也写下来：列出来的缺口可以继续做，
+    # 只被一个数字盖过去的缺口只能靠猜。
+    uncovered_path = out_dir / UNCOVERED_FILE
+    uncovered_path.write_text(
+        json.dumps(
+            {"book_id": spec.book_id, "questions": uncovered},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
     return {
         "book_id": spec.book_id,
         "cards": len(cards),
+        "uncovered": len(uncovered),
         "cards_path": str(cards_path),
+        "uncovered_path": str(uncovered_path),
         "seconds": round(time.perf_counter() - started, 2),
     }

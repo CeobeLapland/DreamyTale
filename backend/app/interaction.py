@@ -35,6 +35,7 @@ from backend.app.models import (
     TextSpan,
 )
 from backend.app.script_parser import classify_instruction, control_action_for
+from backend.app.guide import build_guide_answer, page_start_times
 from backend.app.knowledge import find_qa_card, load_qa_cards
 
 INDEX_DIR = Path("derived") / "index"
@@ -309,6 +310,12 @@ def handle_interaction(
     if kind is InteractionKind.seek:
         scene = _find_scene(_load_index(package_root, "scene_index.json"), text)
         if scene:
+            # Scene.start_ms 是相对页面的，播放器要的是全书绝对时间。
+            # 不换算的话每次定位都落在第 0 毫秒，也就是第一页。
+            page_start = page_start_times(package_root).get(
+                int(scene.get("page_index") or 0), 0
+            )
+            seek_ms = page_start + int(scene.get("start_ms") or 0)
             return _response(
                 request,
                 kind,
@@ -316,7 +323,7 @@ def handle_interaction(
                 action=InteractionAction(
                     type=ActionType.seek,
                     scene_id=str(scene.get("scene_id") or ""),
-                    time_ms=int(scene.get("start_ms") or 0),
+                    time_ms=seek_ms,
                 ),
                 answer=AnswerPayload(
                     text=str(scene.get("caption") or ""),
@@ -329,7 +336,7 @@ def handle_interaction(
                         )
                     ],
                     scene_id=str(scene.get("scene_id") or ""),
-                    time_ms=int(scene.get("start_ms") or 0),
+                    time_ms=seek_ms,
                 ),
                 status="ok",
                 route_ms=int((time.perf_counter() - route_started) * 1000),
@@ -403,6 +410,45 @@ def handle_interaction(
                         evidence=list(card.evidence),
                         scene_id=scene_id,
                         time_ms=time_ms,
+                    ),
+                    status="ok",
+                    route_ms=int(
+                        (time.perf_counter() - route_started) * 1000
+                    ),
+                    total_ms=int(
+                        (time.perf_counter() - started) * 1000
+                    ),
+                )
+
+        # 没有答案卡：按契约 §6.2 给引导，而不是一句"没找到"。
+        # 引导必须三件事齐全——承认、翻页、反问——并且引用书里的原句。
+        # 停在孩子正在看的那一页：翻到哪一页是 pipeline 在卡里定好的，
+        # 运行时不该再去猜。
+        if package is not None and text:
+            guide = build_guide_answer(
+                package,
+                package_root or Path("."),
+                text,
+                request.input.language or package.language,
+                request.input.page_index or request.context.last_page_index,
+            )
+            if guide is not None:
+                return _response(
+                    request,
+                    kind,
+                    request_id=request_id,
+                    action=InteractionAction(
+                        type=ActionType.seek,
+                        scene_id=guide.scene_id,
+                        time_ms=guide.time_ms,
+                    ),
+                    answer=AnswerPayload(
+                        text=guide.text,
+                        language=request.input.language or package.language,
+                        tier=AnswerTier.guide,
+                        evidence=list(guide.evidence),
+                        scene_id=guide.scene_id,
+                        time_ms=guide.time_ms,
                     ),
                     status="ok",
                     route_ms=int(

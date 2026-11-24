@@ -30,6 +30,7 @@ from .manual import auto_narrative_records, seed_narrative_corrections
 from .models import build_llm, build_ocr, build_vlm, config_path, status as provider_status
 from .narrative import run_vlm_all
 from .query_sets import parse_script
+from .report import build_report
 from .review import render_overlay
 from .retime import retime_book
 from .scene import run_scene
@@ -340,7 +341,10 @@ def cmd_knowledge(args: argparse.Namespace) -> int:
             llm = None
     for spec in specs:
         report = build_knowledge(spec, llm=llm)
-        print(f"  {spec.book_id}: cards={report['cards']} -> {report['cards_path']}")
+        print(
+            f"  {spec.book_id}: cards={report['cards']} "
+            f"uncovered={report['uncovered']} -> {report['cards_path']}"
+        )
     return 0
 
 
@@ -363,6 +367,18 @@ def cmd_hotspots(args: argparse.Namespace) -> int:
         )
         if report["unresolved"]:
             print(f"    待人工/VLM: {', '.join(report['unresolved'][:8])}")
+    return 0
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    run_id = args.run
+    if not run_id:
+        runs = sorted((DATA.parent.parent / "runs").glob("run-*"))
+        if not runs:
+            raise SystemExit("no evaluation run found")
+        run_id = runs[-1].name
+    path = build_report(run_id)
+    print(path)
     return 0
 
 
@@ -494,6 +510,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="let the vision model locate objects that are only in the picture",
     )
     p_hotspots.set_defaults(func=cmd_hotspots)
+
+    p_report = sub.add_parser("report", help="write a readable HTML report of an evaluation run")
+    p_report.add_argument("--run", help="run id (default: the latest one)")
+    p_report.set_defaults(func=cmd_report)
 
     p_models = sub.add_parser("models", help="show configured OCR/VLM providers")
     p_models.set_defaults(func=cmd_models)

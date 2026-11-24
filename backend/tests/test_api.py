@@ -103,7 +103,8 @@ class ApiTests(unittest.TestCase):
         self.assertIn("latency", payload)
         self.assertIn("total", payload["latency"])
 
-    def test_interact_qa_falls_back_without_runtime(self) -> None:
+    def test_interact_qa_guides_instead_of_shrugging(self) -> None:
+        """契约 §6.2：没有答案卡也要给引导（承认 + 翻页 + 反问）。"""
         response = self.client.post(
             "/api/interact",
             json={
@@ -115,11 +116,15 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(200, response.status_code)
         payload = response.json()
-        self.assertEqual("fallback", payload["status"])
+        self.assertEqual("ok", payload["status"])
         self.assertEqual("guide", payload["answer"]["tier"])
-        self.assertEqual("none", payload["action"]["type"])
-        self.assertIsNotNone(payload["error"])
-        self.assertFalse(payload["error"]["retryable"])
+        # 翻页动作：播放器据此翻到那一页
+        self.assertEqual("seek", payload["action"]["type"])
+        # 承认 + 翻页 + 反问，三件事都在
+        self.assertIn("没有找到", payload["answer"]["text"])
+        self.assertIn("第 1 页", payload["answer"]["text"])
+        self.assertIn("？", payload["answer"]["text"])
+        self.assertNotIn("抱歉", payload["answer"]["text"])
 
     def test_qa_alias_forces_qa_kind(self) -> None:
         response = self.client.post(
@@ -134,7 +139,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         payload = response.json()
         self.assertEqual("qa", payload["kind"])
-        self.assertEqual("fallback", payload["status"])
+        self.assertEqual("ok", payload["status"])
+        self.assertEqual("guide", payload["answer"]["tier"])
 
     def test_interact_rejects_invalid_body(self) -> None:
         response = self.client.post(

@@ -36,12 +36,26 @@ class InteractionTests(unittest.TestCase):
         self.assertIsNone(response.answer)
         self.assertIsNone(response.error)
 
-    def test_qa_falls_back_instead_of_faking_an_answer(self) -> None:
+    def test_qa_without_card_guides_instead_of_shrugging(self) -> None:
+        """契约 §6.2：没有答案卡时给引导，不是"没找到"的死胡同。"""
         response = handle_interaction(_request(), self.package)
+
+        self.assertEqual("ok", response.status)
+        self.assertEqual(AnswerTier.guide, response.answer.tier)
+        self.assertEqual("seek", response.action.type.value)
+        # 引导必须三件事齐全：承认、翻页、反问。
+        self.assertIn("没有找到", response.answer.text)
+        self.assertIn("第 1 页", response.answer.text)
+        self.assertIn("？", response.answer.text)
+        self.assertNotIn("抱歉", response.answer.text)
+        self.assertNotIn("无法回答", response.answer.text)
+
+    def test_qa_without_a_book_falls_back(self) -> None:
+        """连书都没有时才真的降级。"""
+        response = handle_interaction(_request(), None)
 
         self.assertEqual("fallback", response.status)
         self.assertEqual(AnswerTier.guide, response.answer.tier)
-        self.assertIn("问答卡", response.answer.text)
         self.assertEqual("qa_runtime_not_configured", response.error.code)
         self.assertFalse(response.error.retryable)
 

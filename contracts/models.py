@@ -1072,6 +1072,9 @@ class EvalResult(_Base):
     status: str
     verdict: Literal["ok", "wrong", "miss", "fallback"]
     answer_text: str | None = None
+    # 回答档位（契约 §9.2）：strong / weak / quote / guide。
+    # 引导（guide）不是答案，评测按档位分桶时不能混进正确率。
+    tier: str | None = None
     action: InteractionAction | None = None
     scene_id: str | None = None
     evidence: list[Evidence] = Field(default_factory=list)
