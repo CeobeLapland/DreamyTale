@@ -63,7 +63,7 @@
 | V-2 | ScenePlan + timeline + subtitles（ARCH §3.1） | `[完成]` 六本有 `scene_plan.json`、`timeline.json` | 需检查字幕与页时长连续性 | 字幕不越界、不空洞 | B/C |
 | V-3 | aliases/objects/hotspot_ids（DATA §8.2） | `[部分]` aliases 有；`objects` 与 `hotspot_ids` 为 0 | 把页内物体框与热区写进 Scene | 视频帧上能点物体 | B |
 | V-4 | 页动画视频（ARCH §3.6） | `[完成]` 六本 `book.mp4`、分段 mp4 | 无 | 可播放、页间连贯 | B |
-| V-5 | 重点页 I2V（ARCH §3.6） | `[部分]` 适配器与配置在，无密钥/模型 | 决定是否启用火山方舟或本地视频模型 | 重点页有 I2V 或明确降级原因 | B/A |
+| V-5 | 重点页 I2V（ARCH §3.6） | `[部分]` 适配器与配置在；队友已用外部 API 生成 zh-01/en-01 的完整 AI 动画成片，已转 H.264 并接入视频变体；本仓库还不能自己生成 | 拿到 API key/模型 ID 后把 I2V 接进 `pipeline/video.py` | 重点页有 I2V 或明确降级原因 | B/A |
 | V-6 | 风格 bible/提示词/关键帧（ARCH §3.2） | `[部分]` 风格在 StoryPlan、prompt 在 ScenePlan、keyframes 有 | 需要 ArtDirector 阶段汇总与校验 | `derived/art/art_direction.json` 完整 | B |
 | V-7 | 风格闸门（SSIM/颜色直方图/CLIP，ARCH §3.6） | `[未做]` `style_score` 为空 | 实现每页首帧与原页图相似度评分 | 报告给出平均分与最低页 | B |
 | V-8 | 旁白/台词 TTS（ARCH §3.7） | `[完成]` edge-tts 已接入；六本共 120 页旁白（中文 12×3，英文 28×3） | 无 | 六本有旁白音轨 | B |
@@ -332,6 +332,7 @@
 - Critic：新增 `pipeline/critic.py` 与编排器第 14 个阶段，检查页/场景/时间轴/字幕/音轨/终版视频，写 `derived/critic/report.json`；六本均 `ok=true`、0 warnings。
 - 新增 `GET /api/providers`：返回 OCR/VLM/LLM/ASR/I2V/TTS 的配置 provider、模型、可用状态；前端“生成链路”展示。
 - 语音实测（官方 WAV）：`01.wav` → 转写“播放”，control，ASR 348ms / total 353ms；`14.wav` → “为什么倒了”，qa strong，ASR 252ms / total 260ms；Turn/Trace 均落盘。
+- 外部 I2V 成片接入：`data/remote/` 里队友用 API 生成的 zh-01/en-01 成片，转 H.264 后放到 `derived/video/final-i2v.mp4`，写 `variants.json`；新增 `GET /api/books/{id}/video-variants`，前端“视频版本”可在页动画和 AI 动画之间切换。实测浏览器可播、有音轨。
 - `/review` 改为跳转 `/reader/#review`，删除独立审核页。
 - 测试：新增 `backend/tests/test_conductor.py`、`tests/test_critic.py`；相关后端测试 38 passed，critic/orchestrator 10 passed。
 
@@ -342,6 +343,7 @@
 - 评测标签只读 `runs/` 里最近一次结果，不能从界面发起评测。
 - Critic 只做结构性检查（缺页/空字幕/断时间轴/缺音轨），不做风格相似度与语义连贯评分。
 - 其余五本 manifest 只覆盖 tts→critic 的 8 个阶段；补全 14 阶段需要再跑一次全链（缓存会跳过已完成阶段，但早期 OCR/VLM 可能重跑）。
+- 外部 I2V 成片是“重新演绎”而不是页图复刻：角色发型/服装、房间和狗会发生变化，字幕已烧录；因此作为独立视频版本，不替换 canonical，也不参与可复现性评测。
 
 ### 人工修正怎么用（当前接口）
 

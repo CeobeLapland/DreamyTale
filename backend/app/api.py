@@ -330,6 +330,27 @@ def get_generation_result(book_id: str) -> dict[str, object]:
     return result.model_dump(mode="json")
 
 
+@app.get("/api/books/{book_id}/video-variants")
+def get_video_variants(book_id: str) -> dict[str, object]:
+    """Alternate full videos, e.g. an external I2V cut next to the page animation."""
+    books.load(book_id)
+    package_root = books.package_root(book_id)
+    path = package_root / "derived" / "video" / "variants.json"
+    if not path.is_file():
+        return {"variants": []}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"variants": []}
+    variants = []
+    for item in data.get("variants", []) if isinstance(data, dict) else []:
+        video_path = str(item.get("video_path") or "")
+        if not video_path or not (package_root / video_path).is_file():
+            continue
+        variants.append(dict(item))
+    return {"variants": variants}
+
+
 @app.get("/api/books/{book_id}/timeline")
 def get_timeline(book_id: str) -> dict[str, object]:
     package = books.load(book_id)

@@ -214,6 +214,26 @@ pre {
     min-height: 26px
 }
 
+.variantRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: #52645b
+}
+
+.variantRow select {
+    width: auto;
+    min-width: 180px;
+    margin: 0
+}
+
+.variantRow span {
+    font-size: 12px;
+    color: #73817a
+}
+
 [hidden] {
     display: none !important
 }

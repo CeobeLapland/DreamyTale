@@ -1,0 +1,445 @@
+{
+  "schema_version": "2.0.0",
+  "book_id": "en-01",
+  "language": "en",
+  "title": "英文绘本01",
+  "logline": "英文绘本01 的故事",
+  "characters": [],
+  "style_bible": {
+    "reference_pages": [],
+    "palette": [],
+    "line": "手绘水彩绘本风格，细线勾边",
+    "texture": "纸张纹理，轻微颗粒",
+    "negative_prompts": [
+      "照片写实",
+      "3D 渲染",
+      "文字变形"
+    ]
+  },
+  "pages": [
+    {
+      "page_index": 1,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-001-01",
+          "description": "Going to the Cinema",
+          "narration": "Going to the Cinema",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": null,
+      "state_after": "Going to the Cinema"
+    },
+    {
+      "page_index": 2,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-002-01",
+          "description": "0102 Kung Fu Charlie",
+          "narration": "0102 Kung Fu Charlie",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "Going to the Cinema",
+      "state_after": "0102 Kung Fu Charlie"
+    },
+    {
+      "page_index": 3,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-003-01",
+          "description": "Chaplin I like to go to the cinema to see films. My favourite films have action, comedy, and cars that can talk.",
+          "narration": "Chaplin I like to go to the cinema to see films. My favourite films have action, comedy, and cars that can talk.",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "0102 Kung Fu Charlie",
+      "state_after": "Chaplin I like to go to the cinema to see films. My favourite films have action, comedy, and cars that can talk."
+    },
+    {
+      "page_index": 4,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-004-01",
+          "description": "I will never, ever watch a musical. If it has dancing and singing, I know I will cry.",
+          "narration": "I will never, ever watch a musical. If it has dancing and singing, I know I will cry.",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "Chaplin I like to go to the cinema to see films. My favourite films have action, comedy, and cars that can talk.",
+      "state_after": "I will never, ever watch a musical. If it has dancing and singing, I know I will cry."
+    },
+    {
+      "page_index": 5,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-005-01",
+          "description": "第 5 页",
+          "narration": "（第 5 页）",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "I will never, ever watch a musical. If it has dancing and singing, I know I will cry.",
+      "state_after": "第 5 页"
+    },
+    {
+      "page_index": 6,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-006-01",
+          "description": "第 6 页",
+          "narration": "（第 6 页）",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "第 5 页",
+      "state_after": "第 6 页"
+    },
+    {
+      "page_index": 7,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-007-01",
+          "description": "For a long time, Kuan has been afraid to see films. He would just close his eyes and bury his head into Dad's chest when",
+          "narration": "For a long time, Kuan has been afraid to see films. He would just close his eyes and bury his head into Dad's chest whenever anything scary appeared on thescreen. X odod",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "第 6 页",
+      "state_after": "For a long time, Kuan has been afraid to see films. He would just close his eyes and bury his head into Dad's chest when"
+    },
+    {
+      "page_index": 8,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-008-01",
+          "description": "He's braver now and only covers his eyes a little. POPCORN",
+          "narration": "He's braver now and only covers his eyes a little. POPCORN",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "For a long time, Kuan has been afraid to see films. He would just close his eyes and bury his head into Dad's chest when",
+      "state_after": "He's braver now and only covers his eyes a little. POPCORN"
+    },
+    {
+      "page_index": 9,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-009-01",
+          "description": "10.",
+          "narration": "10.",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "He's braver now and only covers his eyes a little. POPCORN",
+      "state_after": "10."
+    },
+    {
+      "page_index": 10,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-010-01",
+          "description": "The cinema has lots of video games, bright lights, and a huge place to buy candies and snacks ISOORE",
+          "narration": "The cinema has lots of video games, bright lights, and a huge place to buy candies and snacks ISOORE",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "10.",
+      "state_after": "The cinema has lots of video games, bright lights, and a huge place to buy candies and snacks ISOORE"
+    },
+    {
+      "page_index": 11,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-011-01",
+          "description": "第 11 页",
+          "narration": "（第 11 页）",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "The cinema has lots of video games, bright lights, and a huge place to buy candies and snacks ISOORE",
+      "state_after": "第 11 页"
+    },
+    {
+      "page_index": 12,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-012-01",
+          "description": "POPCORN",
+          "narration": "POPCORN",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "第 11 页",
+      "state_after": "POPCORN"
+    },
+    {
+      "page_index": 13,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-013-01",
+          "description": "SUPER MAN Sugar IYONN YLAAD I think the food is my favourite part of going to the cinema.There's popcorn, chips, and sug",
+          "narration": "SUPER MAN Sugar IYONN YLAAD I think the food is my favourite part of going to the cinema.There's popcorn, chips, and sugaron everything.",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "POPCORN",
+      "state_after": "SUPER MAN Sugar IYONN YLAAD I think the food is my favourite part of going to the cinema.There's popcorn, chips, and sug"
+    },
+    {
+      "page_index": 14,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-014-01",
+          "description": "\"Who should buy popcorn?\" I say, interested to see if Dad gets the hint.",
+          "narration": "\"Who should buy popcorn?\" I say, interested to see if Dad gets the hint.",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "SUPER MAN Sugar IYONN YLAAD I think the food is my favourite part of going to the cinema.There's popcorn, chips, and sug",
+      "state_after": "\"Who should buy popcorn?\" I say, interested to see if Dad gets the hint."
+    },
+    {
+      "page_index": 15,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-015-01",
+          "description": "1118",
+          "narration": "1118",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "\"Who should buy popcorn?\" I say, interested to see if Dad gets the hint.",
+      "state_after": "1118"
+    },
+    {
+      "page_index": 16,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-016-01",
+          "description": "\"Kuan can buy it,\" he says, smiling. Kuan and I have saved some money this week for a new toy.",
+          "narration": "\"Kuan can buy it,\" he says, smiling. Kuan and I have saved some money this week for a new toy.",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "1118",
+      "state_after": "\"Kuan can buy it,\" he says, smiling. Kuan and I have saved some money this week for a new toy."
+    },
+    {
+      "page_index": 17,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-017-01",
+          "description": "第 17 页",
+          "narration": "（第 17 页）",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "\"Kuan can buy it,\" he says, smiling. Kuan and I have saved some money this week for a new toy.",
+      "state_after": "第 17 页"
+    },
+    {
+      "page_index": 18,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-018-01",
+          "description": "Still, snacks would be nice. Kuan and I decide to use our money and buy some snacks before the film begins.",
+          "narration": "Still, snacks would be nice. Kuan and I decide to use our money and buy some snacks before the film begins.",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "第 17 页",
+      "state_after": "Still, snacks would be nice. Kuan and I decide to use our money and buy some snacks before the film begins."
+    },
+    {
+      "page_index": 19,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-019-01",
+          "description": "第 19 页",
+          "narration": "（第 19 页）",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "Still, snacks would be nice. Kuan and I decide to use our money and buy some snacks before the film begins.",
+      "state_after": "第 19 页"
+    },
+    {
+      "page_index": 20,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-020-01",
+          "description": "We bring our snacks to the cinema, the crowd gets quiet, and the film comes onthe screen.",
+          "narration": "We bring our snacks to the cinema, the crowd gets quiet, and the film comes onthe screen.",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "第 19 页",
+      "state_after": "We bring our snacks to the cinema, the crowd gets quiet, and the film comes onthe screen."
+    },
+    {
+      "page_index": 21,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-021-01",
+          "description": "第 21 页",
+          "narration": "（第 21 页）",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "We bring our snacks to the cinema, the crowd gets quiet, and the film comes onthe screen.",
+      "state_after": "第 21 页"
+    },
+    {
+      "page_index": 22,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-022-01",
+          "description": "第 22 页",
+          "narration": "（第 22 页）",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "第 21 页",
+      "state_after": "第 22 页"
+    },
+    {
+      "page_index": 23,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-023-01",
+          "description": "Ialwaysget a littlenervousbefore thefilm starts. Ihope it's interesting. Iat leasthopeI won'tbebored!",
+          "narration": "Ialwaysget a littlenervousbefore thefilm starts. Ihope it's interesting. Iat leasthopeI won'tbebored!",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "第 22 页",
+      "state_after": "Ialwaysget a littlenervousbefore thefilm starts. Ihope it's interesting. Iat leasthopeI won'tbebored!"
+    },
+    {
+      "page_index": 24,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-024-01",
+          "description": "This film has cars that talk, my favourite actor, and a car thatknowskarate.In otherwords, it has all of theparts of a g",
+          "narration": "This film has cars that talk, my favourite actor, and a car thatknowskarate.In otherwords, it has all of theparts of a great film.",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "Ialwaysget a littlenervousbefore thefilm starts. Ihope it's interesting. Iat leasthopeI won'tbebored!",
+      "state_after": "This film has cars that talk, my favourite actor, and a car thatknowskarate.In otherwords, it has all of theparts of a g"
+    },
+    {
+      "page_index": 25,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-025-01",
+          "description": "KARATE mg CARFU",
+          "narration": "KARATE mg CARFU",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "This film has cars that talk, my favourite actor, and a car thatknowskarate.In otherwords, it has all of theparts of a g",
+      "state_after": "KARATE mg CARFU"
+    },
+    {
+      "page_index": 26,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-026-01",
+          "description": "第 26 页",
+          "narration": "（第 26 页）",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "KARATE mg CARFU",
+      "state_after": "第 26 页"
+    },
+    {
+      "page_index": 27,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-027-01",
+          "description": "10000 Kuan and I arelaughing out loud! We have got to see it again. We'll be talking about the film at thedinner tablefo",
+          "narration": "10000 Kuan and I arelaughing out loud! We have got to see it again. We'll be talking about the film at thedinner tablefor aweek.",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "第 26 页",
+      "state_after": "10000 Kuan and I arelaughing out loud! We have got to see it again. We'll be talking about the film at thedinner tablefo"
+    },
+    {
+      "page_index": 28,
+      "beats": [
+        {
+          "beat_id": "beat-en-01-028-01",
+          "description": "Dad will not be. He's snoring.",
+          "narration": "Dad will not be. He's snoring.",
+          "dialogues": [],
+          "entities": [],
+          "duration_ms": 6000
+        }
+      ],
+      "state_before": "10000 Kuan and I arelaughing out loud! We have got to see it again. We'll be talking about the film at thedinner tablefo",
+      "state_after": "Dad will not be. He's snoring."
+    }
+  ],
+  "model": "fallback",
+  "prompt_version": "story-v1",
+  "source_hash": "cc88784b6a725fe4",
+  "created_at": "2026-11-23T23:02:17.561340Z"
+}

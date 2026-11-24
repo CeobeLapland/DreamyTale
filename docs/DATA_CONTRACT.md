@@ -74,6 +74,14 @@ data/books/<book_id>/
 
 Trace 落 `data/traces/<yyyy-mm-dd>/`，Turn 落 `data/turns/<yyyy-mm-dd>.jsonl`；与单书包分开，便于跨书审计。
 
+`derived/video/variants.json` 是播放器侧的备选成片索引，不属于 v2 契约模型：
+
+```json
+{"variants":[{"id":"i2v","name":"AI 动画版","video_path":"derived/video/final-i2v.mp4","model":"external_api","note":"外部 API 生成","pages":[{"page_index":1,"start_ms":0,"end_ms":6000}]}]}
+```
+
+没有这个文件时，播放器只使用 `generation_result.full_video_path` 的 canonical 成片。
+
 - 包根为 `data/books/<book_id>/`；所有路径相对于它。
 - `source/` 保存原始快照，不入 Git；`derived/` 中的媒体缓存不入 Git。
 - 本仓库公开：`book.json`、`query_sets/`、`derived/understanding/` 含原书正文/命题组脚本，默认不入 Git。`facts.jsonl`、`cards.jsonl`、`aliases.json`、`story_plan.json`、`scene_plan.json`、`manifest.json`、`capability.json`、`annotations.jsonl` 如要入 Git，必须先脱敏并由三人确认；答辩材料单独打包。

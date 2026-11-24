@@ -1,0 +1,162 @@
+{
+  "schema_version": "2.0.0",
+  "book_id": "zh-01",
+  "generation_version": 1,
+  "status": "completed",
+  "pages": [
+    {
+      "page_index": 1,
+      "video_path": "derived/video/scene-zh-01-001.mp4",
+      "start_ms": 0,
+      "end_ms": 6000,
+      "scene_ids": [
+        "scene-zh-01-001"
+      ],
+      "thumbnail_path": "derived/video/thumbs/scene-zh-01-001.jpg"
+    },
+    {
+      "page_index": 2,
+      "video_path": "derived/video/scene-zh-01-002.mp4",
+      "start_ms": 6000,
+      "end_ms": 18210,
+      "scene_ids": [
+        "scene-zh-01-002"
+      ],
+      "thumbnail_path": "derived/video/thumbs/scene-zh-01-002.jpg"
+    },
+    {
+      "page_index": 3,
+      "video_path": "derived/video/scene-zh-01-003.mp4",
+      "start_ms": 18210,
+      "end_ms": 24210,
+      "scene_ids": [
+        "scene-zh-01-003"
+      ],
+      "thumbnail_path": "derived/video/thumbs/scene-zh-01-003.jpg"
+    },
+    {
+      "page_index": 4,
+      "video_path": "derived/video/scene-zh-01-004.mp4",
+      "start_ms": 24210,
+      "end_ms": 35130,
+      "scene_ids": [
+        "scene-zh-01-004"
+      ],
+      "thumbnail_path": "derived/video/thumbs/scene-zh-01-004.jpg"
+    },
+    {
+      "page_index": 5,
+      "video_path": "derived/video/scene-zh-01-005.mp4",
+      "start_ms": 35130,
+      "end_ms": 47560,
+      "scene_ids": [
+        "scene-zh-01-005"
+      ],
+      "thumbnail_path": "derived/video/thumbs/scene-zh-01-005.jpg"
+    },
+    {
+      "page_index": 6,
+      "video_path": "derived/video/scene-zh-01-006.mp4",
+      "start_ms": 47560,
+      "end_ms": 57180,
+      "scene_ids": [
+        "scene-zh-01-006"
+      ],
+      "thumbnail_path": "derived/video/thumbs/scene-zh-01-006.jpg"
+    },
+    {
+      "page_index": 7,
+      "video_path": "derived/video/scene-zh-01-007.mp4",
+      "start_ms": 57180,
+      "end_ms": 69510,
+      "scene_ids": [
+        "scene-zh-01-007"
+      ],
+      "thumbnail_path": "derived/video/thumbs/scene-zh-01-007.jpg"
+    },
+    {
+      "page_index": 8,
+      "video_path": "derived/video/scene-zh-01-008.mp4",
+      "start_ms": 69510,
+      "end_ms": 76660,
+      "scene_ids": [
+        "scene-zh-01-008"
+      ],
+      "thumbnail_path": "derived/video/thumbs/scene-zh-01-008.jpg"
+    },
+    {
+      "page_index": 9,
+      "video_path": "derived/video/scene-zh-01-009.mp4",
+      "start_ms": 76660,
+      "end_ms": 84650,
+      "scene_ids": [
+        "scene-zh-01-009"
+      ],
+      "thumbnail_path": "derived/video/thumbs/scene-zh-01-009.jpg"
+    },
+    {
+      "page_index": 10,
+      "video_path": "derived/video/scene-zh-01-010.mp4",
+      "start_ms": 84650,
+      "end_ms": 96050,
+      "scene_ids": [
+        "scene-zh-01-010"
+      ],
+      "thumbnail_path": "derived/video/thumbs/scene-zh-01-010.jpg"
+    },
+    {
+      "page_index": 11,
+      "video_path": "derived/video/scene-zh-01-011.mp4",
+      "start_ms": 96050,
+      "end_ms": 105550,
+      "scene_ids": [
+        "scene-zh-01-011"
+      ],
+      "thumbnail_path": "derived/video/thumbs/scene-zh-01-011.jpg"
+    },
+    {
+      "page_index": 12,
+      "video_path": "derived/video/scene-zh-01-012.mp4",
+      "start_ms": 105550,
+      "end_ms": 116590,
+      "scene_ids": [
+        "scene-zh-01-012"
+      ],
+      "thumbnail_path": "derived/video/thumbs/scene-zh-01-012.jpg"
+    }
+  ],
+  "full_video_path": "derived/video/final.mp4",
+  "subtitle_paths": [
+    "derived/video/subtitles.srt"
+  ],
+  "audio_paths": [
+    "derived/audio/narration/page-001.mp3",
+    "derived/audio/narration/page-002.mp3",
+    "derived/audio/narration/page-003.mp3",
+    "derived/audio/narration/page-004.mp3",
+    "derived/audio/narration/page-005.mp3",
+    "derived/audio/narration/page-006.mp3",
+    "derived/audio/narration/page-007.mp3",
+    "derived/audio/narration/page-008.mp3",
+    "derived/audio/narration/page-009.mp3",
+    "derived/audio/narration/page-010.mp3",
+    "derived/audio/narration/page-011.mp3",
+    "derived/audio/narration/page-012.mp3"
+  ],
+  "timeline_path": "derived/scene/timeline.json",
+  "manifest_path": "derived/manifest.json",
+  "metrics": {
+    "style_score_avg": null,
+    "fallback_pages": 0,
+    "qa_cards": 0,
+    "duration_ms": 116590
+  },
+  "model_versions": {
+    "video": "volcengine_ark"
+  },
+  "prompt_versions": {
+    "story": "story-v1",
+    "scene": "scene-v1"
+  },
+  "created_at": "2026-11-23T21:12:50.978856Z"
+}

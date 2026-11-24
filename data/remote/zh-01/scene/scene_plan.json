@@ -1,0 +1,63 @@
+{
+  "schema_version": "2.0.0",
+  "book_id": "zh-01",
+  "plan_version": 1,
+  "page_map": [
+    {
+      "page_index": 1,
+      "scene_ids": ["scene-mock-001"],
+      "start_ms": 0,
+      "end_ms": 3000
+    }
+  ],
+  "scenes": [
+    {
+      "scene_id": "scene-mock-001",
+      "page_index": 1,
+      "beat_id": "beat-mock-001",
+      "start_ms": 0,
+      "end_ms": 3000,
+      "caption": "测试角色进入画面并挥手。",
+      "aliases": ["角色入场", "角色挥手", "测试角色"],
+      "entities": ["测试角色"],
+      "action": "角色从左侧进入并挥手",
+      "camera": "固定机位，轻微推近",
+      "prompt": "柔和水彩儿童绘本风格，测试角色在纯色背景中挥手",
+      "negative_prompt": "photorealistic, dark, extra limbs",
+      "keyframe_path": "",
+      "video_path": "",
+      "thumbnail_path": "",
+      "subtitles": [
+        {
+          "text": "测试角色来到画面前。",
+          "start_ms": 0,
+          "end_ms": 1500,
+          "lang": "zh-CN"
+        },
+        {
+          "text": "你好，我们一起看书吧。",
+          "start_ms": 1500,
+          "end_ms": 3000,
+          "lang": "zh-CN"
+        }
+      ],
+      "objects": [
+        {
+          "entity": "测试角色",
+          "bbox_px": [200, 200, 800, 1000],
+          "start_ms": 0,
+          "end_ms": 3000
+        }
+      ],
+      "hotspot_ids": [],
+      "seed": 1,
+      "style_score": null,
+      "source": "human",
+      "status": "fallback"
+    }
+  ],
+  "model": "mock-plan",
+  "prompt_version": "mock-v1",
+  "source_hash": "mock-source-hash",
+  "created_at": "2026-11-22T00:00:00Z"
+}

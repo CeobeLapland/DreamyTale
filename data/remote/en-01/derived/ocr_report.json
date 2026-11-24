@@ -1,0 +1,13 @@
+{
+  "book_id": "en-01",
+  "provider": "rapidocr",
+  "available": true,
+  "watermark_phrases": 1,
+  "pages_processed": 28,
+  "pages_changed": 20,
+  "items": 103,
+  "accepted": 60,
+  "skipped": 43,
+  "errors": [],
+  "seconds": 44.11
+}

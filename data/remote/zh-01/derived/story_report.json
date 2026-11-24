@@ -1,0 +1,12 @@
+{
+  "book_id": "zh-01",
+  "model": "",
+  "available": false,
+  "pages_llm": 0,
+  "pages_fallback": 12,
+  "errors": [],
+  "seconds": 0.01,
+  "plan_path": "D:\\纸书智伴\\DreamyTale\\data\\books\\zh-01\\derived\\story\\story_plan.json",
+  "characters": 0,
+  "beats": 12
+}

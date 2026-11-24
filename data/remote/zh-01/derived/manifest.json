@@ -1,0 +1,93 @@
+{
+  "manifest_id": "manifest-zh-01-001",
+  "book_id": "zh-01",
+  "generation_version": 1,
+  "input_hash": "18482c05d0dde271",
+  "contract_version": "2.0.0",
+  "stages": [
+    {
+      "name": "video",
+      "provider": "local",
+      "model": "page-animation-v1",
+      "model_version": "v1",
+      "prompt_version": "scene-v1",
+      "params": {
+        "fps": 12,
+        "size": [
+          1280,
+          720
+        ]
+      },
+      "seed": null,
+      "started_at": "2026-11-23T21:12:50.985857Z",
+      "duration_ms": 1710159,
+      "status": "completed",
+      "error_code": null,
+      "degraded": false,
+      "output_hash": null
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "derived/video/scene-zh-01-001.mp4",
+      "sha256": "8d8188c519644263"
+    },
+    {
+      "path": "derived/video/scene-zh-01-002.mp4",
+      "sha256": "dff3d43a9d174dd5"
+    },
+    {
+      "path": "derived/video/scene-zh-01-003.mp4",
+      "sha256": "d018d77004f6dc6b"
+    },
+    {
+      "path": "derived/video/scene-zh-01-004.mp4",
+      "sha256": "6df1ad9704044997"
+    },
+    {
+      "path": "derived/video/scene-zh-01-005.mp4",
+      "sha256": "a4eb84781e830c30"
+    },
+    {
+      "path": "derived/video/scene-zh-01-006.mp4",
+      "sha256": "e02ce64785a69058"
+    },
+    {
+      "path": "derived/video/scene-zh-01-007.mp4",
+      "sha256": "ad66382ffdc0ef4e"
+    },
+    {
+      "path": "derived/video/scene-zh-01-008.mp4",
+      "sha256": "4b15e3878c1e6ff4"
+    },
+    {
+      "path": "derived/video/scene-zh-01-009.mp4",
+      "sha256": "26fed2f505011928"
+    },
+    {
+      "path": "derived/video/scene-zh-01-010.mp4",
+      "sha256": "f8fd9daf5371b34e"
+    },
+    {
+      "path": "derived/video/scene-zh-01-011.mp4",
+      "sha256": "d707d9c06abc91ab"
+    },
+    {
+      "path": "derived/video/scene-zh-01-012.mp4",
+      "sha256": "43e13f5a335159aa"
+    },
+    {
+      "path": "derived/video/book.mp4",
+      "sha256": "19f4309bf61eb52a"
+    }
+  ],
+  "model_versions": {
+    "video": "page-animation-v1"
+  },
+  "prompt_versions": {
+    "story": "story-v1",
+    "scene": "scene-v1"
+  },
+  "created_at": "2026-11-23T21:12:50.985857Z",
+  "status": "completed"
+}

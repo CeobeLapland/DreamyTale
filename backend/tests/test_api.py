@@ -84,6 +84,37 @@ class ApiTests(unittest.TestCase):
             (Path(self.temporary.name) / "books" / "zh-99" / "derived" / "capability.json").is_file()
         )
 
+    def test_video_variants_are_listed_only_when_the_file_exists(self) -> None:
+        empty = self.client.get("/api/books/zh-99/video-variants")
+        self.assertEqual({"variants": []}, empty.json())
+
+        video_root = Path(self.temporary.name) / "books" / "zh-99" / "derived" / "video"
+        video_root.mkdir(parents=True)
+        (video_root / "final-i2v.mp4").write_bytes(b"video")
+        (video_root / "variants.json").write_text(
+            json.dumps(
+                {
+                    "variants": [
+                        {
+                            "id": "i2v",
+                            "name": "AI 动画版",
+                            "video_path": "derived/video/final-i2v.mp4",
+                        },
+                        {
+                            "id": "missing",
+                            "name": "缺失版本",
+                            "video_path": "derived/video/missing.mp4",
+                        },
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        listed = self.client.get("/api/books/zh-99/video-variants").json()
+        self.assertEqual(["i2v"], [item["id"] for item in listed["variants"]])
+
     def test_interact_control_returns_action(self) -> None:
         response = self.client.post(
             "/api/interact",

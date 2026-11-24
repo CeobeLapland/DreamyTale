@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-let book = null, result = null, plan = null, index = 0, busy = false, recorder = null, stream = null, wasPlaying = false, turns = [], session = crypto.randomUUID(), qaCards = [], editing = null, toolsLoaded = false;
+let book = null, result = null, canonicalResult = null, variants = [], activeVariant = 'canonical', plan = null, index = 0, busy = false, recorder = null, stream = null, wasPlaying = false, turns = [], session = crypto.randomUUID(), qaCards = [], editing = null, toolsLoaded = false;
 const video = $('video'), reply = $('reply');
 const TIER_LABEL = { strong: '卡片', weak: '模型作答', quote: '原文', guide: '引导' };
 const notify = t => $('notice').textContent = t;
@@ -157,6 +157,25 @@ function sessionFor(bookId) {
   if (!value) { value = crypto.randomUUID(); localStorage.setItem(key, value); }
   return value;
 }
+function applyVariant(id) {
+  if (!book) return;
+  pause();
+  activeVariant = id;
+  const variant = variants.find(item => item.id === id);
+  result = variant
+    ? { ...(canonicalResult || {}), full_video_path: variant.video_path, pages: variant.pages?.length ? variant.pages : (canonicalResult?.pages || []), variant: variant.id }
+    : canonicalResult;
+  showPage();
+  const page = book.pages[index];
+  const pageInfo = result?.pages?.find(item => item.page_index === page?.index);
+  const target = pageInfo ? pageInfo.start_ms / 1000 : 0;
+  const seek = () => { try { video.currentTime = target; } catch { /* metadata not ready */ } };
+  if (video.readyState >= 1) seek();
+  else video.addEventListener('loadedmetadata', seek, { once: true });
+  $('subtitle').textContent = '';
+  notify(variant ? `已切换到 ${variant.name}；该版本字幕由视频自带。` : '已切回页动画版本。');
+}
+$('videoVariant').onchange = () => applyVariant($('videoVariant').value);
 async function loadQaCards() {
   qaCards = [];
   if (!book) return;
@@ -184,7 +203,15 @@ async function loadTurns() {
   }
 }
 async function selectBook(id) {
-  if (recorder?.state === 'recording') return; pause(); book = await api(`/api/books/${encodeURIComponent(id)}`); index = 0; session = sessionFor(id); turns = []; qaCards = []; clearAudio(); $('messages').replaceChildren(); result = null; plan = null; const responses = await Promise.allSettled(['generation-result', 'scene-plan'].map(p => api(`/api/books/${encodeURIComponent(id)}/${p}`))); if (responses[0].status === 'fulfilled') result = responses[0].value; if (responses[1].status === 'fulfilled') plan = responses[1].value; $('title').textContent = book.title; showPage(); notify(result ? '已载入生成产物；点击播放开始阅读。' : '绘本已载入，目前还没有可播放的生成视频。');
+  if (recorder?.state === 'recording') return; pause(); book = await api(`/api/books/${encodeURIComponent(id)}`); index = 0; session = sessionFor(id); turns = []; qaCards = []; canonicalResult = null; variants = []; activeVariant = 'canonical'; $('variantRow').hidden = true; $('variantNote').textContent = ''; clearAudio(); $('messages').replaceChildren(); result = null; plan = null; const responses = await Promise.allSettled(['generation-result', 'scene-plan'].map(p => api(`/api/books/${encodeURIComponent(id)}/${p}`))); if (responses[0].status === 'fulfilled') result = responses[0].value; if (responses[1].status === 'fulfilled') plan = responses[1].value; canonicalResult = result; $('title').textContent = book.title; showPage(); notify(result ? '已载入生成产物；点击播放开始阅读。' : '绘本已载入，目前还没有可播放的生成视频。');
+  const variantPayload = await api(`/api/books/${encodeURIComponent(id)}/video-variants`).catch(() => ({ variants: [] }));
+  variants = variantPayload.variants || [];
+  if (variants.length) {
+    $('videoVariant').replaceChildren(new Option('页动画（可复现）', 'canonical'), ...variants.map(item => new Option(item.name, item.id)));
+    $('videoVariant').value = 'canonical';
+    $('variantNote').textContent = variants.map(item => item.note || '').filter(Boolean)[0] || '';
+    $('variantRow').hidden = false;
+  }
   await Promise.allSettled([loadQaCards(), loadTurns()]);
   renderReview();
   Promise.allSettled([loadAnnotations(), loadReviews()]);
@@ -283,7 +310,7 @@ $('page').onclick = e => lock(async () => {
 video.ontimeupdate = () => {
   if (!book) return; const ms = currentMs(); if (result?.full_video_path) {
     const p = result.pages.find(p => ms >= p.start_ms && ms < p.end_ms); if (p) { index = book.pages.findIndex(x => x.index === p.page_index); $('pageNumber').textContent = `第 ${index + 1} / ${book.pages.length} 页`; }
-  } const page = result?.pages?.find(p => p.page_index === book.pages[index]?.index); const local = ms - (page?.start_ms || 0); $('subtitle').textContent = (plan?.scenes || []).filter(s => s.page_index === book.pages[index]?.index).flatMap(s => s.subtitles || []).find(s => local >= s.start_ms && local < s.end_ms)?.text || '';
+  } if (activeVariant !== 'canonical') { $('subtitle').textContent = ''; return; } const page = result?.pages?.find(p => p.page_index === book.pages[index]?.index); const local = ms - (page?.start_ms || 0); $('subtitle').textContent = (plan?.scenes || []).filter(s => s.page_index === book.pages[index]?.index).flatMap(s => s.subtitles || []).find(s => local >= s.start_ms && local < s.end_ms)?.text || '';
 };
 video.onerror = () => notify('视频加载失败，请检查后端产物文件与媒体路径。');
 $('export').onclick = () => {
