@@ -47,10 +47,35 @@ def normalize(text: str) -> str:
     return text.strip("“”\"'‘’ ")
 
 
+QUESTION_WORDS = (
+    "是什么",
+    "为什么",
+    "是不是",
+    "什么",
+    "哪里",
+    "哪儿",
+    "怎么",
+    "怎样",
+    "多少",
+    "谁",
+    "几",
+    "吗",
+    "呢",
+    "呀",
+    "啊",
+)
+
+
 def query_core(query: str) -> str:
-    """Strip the instruction words so only the content of the query is left."""
+    """Strip the instruction and question words so only the content is left.
+
+    "他们在搭什么？" -> "他们在搭": the question word would otherwise match any
+    page that happens to contain "什么".
+    """
     text = normalize(query)
     for word in STOPWORDS:
+        text = text.replace(word, " ")
+    for word in QUESTION_WORDS:
         text = text.replace(word, " ")
     return re.sub(r"\s+", "", text)
 

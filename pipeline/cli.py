@@ -24,6 +24,7 @@ from .coverage import analyze_all
 from .eval import run_eval
 from .ingest import ingest_book, ingest_pdf
 from .index import build_index
+from .knowledge import build_knowledge
 from .manual import auto_narrative_records, seed_narrative_corrections
 from .models import build_llm, build_ocr, build_vlm, config_path, status as provider_status
 from .narrative import run_vlm_all
@@ -326,6 +327,22 @@ def cmd_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_knowledge(args: argparse.Namespace) -> int:
+    specs = _select(args)
+    if not specs:
+        raise SystemExit("select --all or --book")
+    llm = build_llm() if args.use_llm else None
+    if args.use_llm:
+        print(f"llm provider: {llm.name} model={getattr(llm, 'model', '')}")
+        if not llm.available():
+            print("warning: no LLM available; falling back to the book text only")
+            llm = None
+    for spec in specs:
+        report = build_knowledge(spec, llm=llm)
+        print(f"  {spec.book_id}: cards={report['cards']} -> {report['cards_path']}")
+    return 0
+
+
 def cmd_models(_args: argparse.Namespace) -> int:
     print(f"config: {config_path()}")
     print(f"ocr provider: {build_ocr().name}")
@@ -436,6 +453,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_eval.add_argument("--base-url", default="http://127.0.0.1:8000")
     p_eval.add_argument("--limit", type=int, help="only replay the first N actions")
     p_eval.set_defaults(func=cmd_eval)
+
+    p_knowledge = sub.add_parser("knowledge", help="build the QA cards for a book")
+    add_selection(p_knowledge)
+    p_knowledge.add_argument(
+        "--use-llm",
+        action="store_true",
+        help="let the model pick the page and write the answers",
+    )
+    p_knowledge.set_defaults(func=cmd_knowledge)
 
     p_models = sub.add_parser("models", help="show configured OCR/VLM providers")
     p_models.set_defaults(func=cmd_models)
