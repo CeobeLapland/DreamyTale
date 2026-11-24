@@ -60,7 +60,30 @@
 **契约 §6.2 的硬要求**：`QaCard` 必须有 `evidence` 和 `guide`，`variants` 至少 5 条；
 `guide` 三件事缺一不可，且**禁止"抱歉，我无法回答"**。
 
-### 0.3 什么叫"做对了"
+### 0.3 引导式回答现在长什么样（别改回旧写法）
+
+`backend/app/guide.py` 是本次新增的，**故意不含任何检索**：
+
+```python
+guide = build_guide_answer(package, package_root, question, language, current_page)
+# → text      = 承认 + 翻页 + 反问
+# → page_index = current_page（孩子正在看的那页）
+# → evidence  = 这一页第一句成话的原句 + 它的 bbox
+# → time_ms   = timeline 里这一页的全书绝对时间
+```
+
+**为什么不做检索**：pipeline 已经把"该引哪句、该翻到第几页"烘焙进
+`QaCard.answers.guide` 和 `QaCard.video_anchor` 了。运行时再算一遍，
+就是把对的答案推翻（这正是第 0.1 节犯的错）。
+
+**没有卡的时候翻到哪一页**：停在孩子正在看的那一页。
+运行时拿不到"当前页"就退到第一页——但**永远不猜**。
+猜错了比不翻更糟：孩子被翻到一个不相干的画面上，比留在原地更困惑。
+
+**引不到原句怎么办**：不引。只说承认 + 翻页 + 反问。
+宁可少一句，也不能编一句。
+
+### 0.4 什么叫"做对了"
 
 - 指标要看的是**效果**（成片时长、字幕条数、能答的问题数、能点的热区数、证据率），
   正确率只是其中一行。报告页已经把效果放前面、正确率放最后一行。
@@ -70,7 +93,10 @@
 
 ---
 
-## 1. 当前状态（截至最后一次提交 `4187dcf`）
+## 1. 当前状态
+
+最新提交：`d89636f`（分支 `ceobe-backspace`，**尚未推送**）。
+上一次提交 `4187dcf` 之前的状态见 `git log`。
 
 ### 1.1 已完成并已提交
 
@@ -80,31 +106,27 @@
 | 六本绘本全链路 | ✅ ingest→ocr→vlm→story→scene→index→knowledge→hotspots→video→final | `pipeline/` |
 | 成片 | ✅ 六本都有 `derived/video/final.mp4`（1280×720@12fps，**烧录字幕**）+ `subtitles.srt` | `data/books/<id>/derived/video/` |
 | 五类交互真结果 | ✅ control / search / highlight / seek / qa | `backend/app/interaction.py` |
+| **引导式回答** | ✅ 契约 §6.2 三要素齐全，引用原句带页图证据，**运行时不做检索** | `backend/app/guide.py`（本次新增） |
+| **seek 时间轴修复** | ✅ 原来返回页相对时间 → 永远落第 1 页；现在换算成全书绝对时间 | `backend/app/interaction.py` |
 | QA 卡 | ✅ pipeline 产出 `derived/knowledge/cards.jsonl`，A 的运行时能读 | `pipeline/knowledge.py`、`backend/app/knowledge.py` |
-| 评测回放 | ✅ 328 个动作打真实服务，出 `EvalRun`/`EvalResult` | `pipeline/eval.py` |
+| 评测回放 + 档位分桶 | ✅ 328 个动作打真实服务；引导算降级，不混进正确率 | `pipeline/eval.py` |
+| 效果报告 | ✅ 三个页签：效果 / 自己动手试 / 明细 | `pipeline/report.py`（本次新增） |
+| 缺口清单 | ✅ `derived/knowledge/uncovered.json` 列出答不上的题（当前 74 张卡 / 40 题未覆盖） | `pipeline/knowledge.py` |
 | 人工修正（部分） | ⚠️ `pipeline/manual.py` 能写 `manual/annotations.jsonl`，**但后端还没读它** | 见第 4 节 |
 | 来源清单 | ✅ 材料 d 要求 | `docs/MODEL_SOURCES.md` |
 
-### 1.2 本次未提交的工作（工作区里，直接看 diff）
+### 1.2 工作区里**故意没提交**的东西
 
-> ⚠️ **提交时注意**：`frontend/` 下三个文件有 **C 的未提交改动**（528 行），
-> **不要连带着提交**，那是 C 的前端工作。要提交就只挑 `backend/ contracts/ pipeline/` 里的文件。
+> 用户明确指示："保留但不提交，不再继续调"。
 
-| 文件 | 改动 | 该不该提交 |
+| 文件 | 内容 | 为什么留 |
 | --- | --- | --- |
-| `backend/app/guide.py`（新增） | 引导式回答。**不含任何检索**：停在孩子当前页、引该页第一句原句、承认+翻页+反问 | ✅ 提交 |
-| `backend/tests/test_guide.py`（新增） | 引导的契约测试（三要素、无"抱歉"、绝对时间轴） | ✅ 提交 |
-| `backend/app/interaction.py` | qa 无卡时走引导（原来回"没找到问答卡"，违反 §6.2）；**修 seek 时间轴 bug**（原来返回页相对时间，播放器按全书绝对时间找页 → 永远落在第 1 页） | ✅ 提交 |
-| `backend/tests/test_interaction.py`、`backend/tests/test_api.py` | 跟着改：原来断言"回退"，现在断言"给引导" | ✅ 提交 |
-| `contracts/models.py` | `EvalResult` 加 `tier` 字段（评测按档位分桶用） | ✅ 提交 |
-| `pipeline/eval.py` | 按 tier 分桶；引导**不算答对**（判 fallback）；回放时带上"当前页"（模拟真实播放器会翻页） | ✅ 提交 |
-| `pipeline/report.py`（新增） | 可视化报告：效果面板 + "自己动手试"实时提问面板 + 评测明细 | ✅ 提交 |
-| `pipeline/cli.py` | 加 `report` 命令 | ✅ 提交 |
-| `contracts/retrieval.py` | **+154 行字词匹配规则**（`term_score`/`char_coverage`） | ❌ **不提交**（第 0 节：过拟合） |
-| `pipeline/knowledge.py` | **+153 行四路信号打分** + `_is_grounded` 门槛 + `uncovered.json` | ⚠️ **拆分提交**：`uncovered.json` 那部分要留（四路打分那部分不要） |
-| `frontend/index.html`、`frontend/src/app.js`、`frontend/style.css` | C 的前端改动 | ❌ **不提交** |
+| `contracts/retrieval.py` | +154 行字词匹配（`term_score` / `char_coverage`） | 第 0 节：只对官方那 117 道题有效，评委换个说法就失效 |
+| `pipeline/knowledge.py` | +153 行四路信号打分 + `_is_grounded` 门槛 | 同上。**已提交的部分只有 `uncovered.json`（+23 行）** |
+| `frontend/index.html`、`frontend/src/app.js`、`frontend/style.css` | **C 的前端改动**（528 行） | 不是我的，不要带进我的提交 |
 
-> 用户明确指示："保留但不提交，不再继续调"（指 `contracts/retrieval.py` 和 `pipeline/knowledge.py` 里的字词匹配那批）。
+想启用那批匹配规则：`git checkout -- contracts/retrieval.py pipeline/knowledge.py`
+会让工作区回到当前提交；反过来 `git stash` / 从 reflog 取回。
 
 ### 1.3 测试
 
@@ -130,7 +152,11 @@ click           12/28    43%   （纯视觉物体要开 VLM 才能定位）
 evidence_rate   72%      ← 引导也带证据，所以比之前高
 必选动作        58/91
 延迟            p50=0ms  p95=4ms（服务内，不含前端与媒体）
+按档位          strong 81 · quote 119 · guide 48 · none 80
 ```
+
+**引导 ≠ 答对**：48 次引导（承认+翻页+反问）在评测里算 `fallback`，
+不混进正确率。引导是降级路径，不是能力。
 
 **看效果的入口**（这是给用户/评委看的，别只给数字）：
 
@@ -183,12 +209,31 @@ data/books/<id>/derived/video/final.mp4
 这是**真正的解法**，不是打补丁。用 LLM 写卡，卡就覆盖全部问题，
 运行时读卡就行，检索规则可以全部退休。
 
+**当前缺口长这样**（`derived/knowledge/uncovered.json`，共 74 张卡 / 40 题未覆盖）：
+
+```
+en-01  cards 18  uncovered 0     ← 英文书覆盖最好
+en-02  cards 20  uncovered 3
+en-03  cards 16  uncovered 1
+zh-01  cards  3  uncovered 15    ← 中文书最差：18 题只覆盖 3
+zh-02  cards  5  uncovered 12    ← 17 题只覆盖 5
+zh-03  cards 12  uncovered 9
+```
+
+中文书覆盖差不是因为中文更难，是因为**没有 LLM 时，只能靠字面重合找页**
+（`pipeline/knowledge.py` 的 `_best_page`）。英文书页正文是拉丁字母，
+`overlap_score` 还能撞上几个词；中文书的问句和原文措辞差得远，就撞不上了。
+**开 LLM 之后这个差距应该消失**——先开模型验证这一点。
+
+做法：
+
 ```powershell
 # 1) 启动 LM Studio，load Qwen3.5-9B（或 Nemotron-Nano-4B 更省内存），开 Local Server (1234)
 # 2) 确认通：
 curl.exe http://127.0.0.1:1234/v1/models
 # 3) 用 LLM 重写 QA 卡（117 条问题全覆盖）：
 python -m pipeline knowledge --all --use-llm
+#    → 输出会打印 cards=N uncovered=M，uncovered 应该显著下降
 # 4) 用 VLM 定位纯视觉物体（英文书 15 个热区）：
 python -m pipeline hotspots --all --use-vlm
 # 5) 重跑评测与报告：
@@ -199,8 +244,7 @@ python -m pipeline report
 要点：
 - `pipeline/knowledge.py` 里 `_answer_with_llm()` 已经写好了（schema 约束 JSON 输出），
   **LLM 负责选页 + 写三档答案**，运行时只读卡。
-- `pipeline/knowledge.py` 里 `_best_page()` 现在是那套四路打分——**开了 LLM 之后它只该当降级兜底**，
-  不要让它当主路径。
+- 开了 LLM 之后，`_best_page()` 那套字面打分**只该当降级兜底**，不要当主路径。
 - 内存紧就先用 Nemotron-Nano-4B 试通流程，再换 9B。
 
 ### 4.2 【高】人工修正闭环
