@@ -12,7 +12,7 @@
 | 命题组脚本 TXT | 命题组下发 | 同上 | 否 |
 | 赛题原文 `纸书智伴.md` | 命题组下发 | 同上 | 否 |
 
-原始素材不进入本仓库（`data/books/`、素材目录已在 `.gitignore` 中），只在本机与网盘共享。
+原始素材不进入本仓库（`data/books/`、素材目录已在 `.gitignore` 中），只在本机与网盘共享。队友放在 `data/remote/` 的外部 I2V 成片同样不入 Git。
 
 ## 二、模型与工具
 
@@ -26,6 +26,7 @@
 | 三方 API（演示计划） | 待定（LLM/VLM/ASR/TTS/I2V） | 以最终供应商条款为准 | 演示时替换本地模型；调用范围、费用与密钥管理需补进本节 | **是**：会把书页/问题/音频发给供应商，启用前需三人确认 |
 | Edge TTS | `pip install edge-tts`，调用微软在线语音服务 | MIT（客户端）/ 微软服务条款 | 旁白配音 | **是**：只有旁白文本出网，不含原书正文以外的数据 |
 | 火山方舟 I2V（可选） | `ARK_API_KEY` + `ARK_MODEL_ID` | 火山引擎服务条款，闭源 | 重点页图生视频 | **是**：会上传页图与提示词；未配置密钥时自动降级为页动画 |
+| 外部 I2V 成片（zh-01 / en-01） | 队友用外部 API 生成，供应商、模型、seed、调用参数待补 | 以最终供应商条款为准 | 两本 AI 动画版成片（作为视频变体，不替换 canonical） | **是**：生成时已上传页图与提示词；来源与调用范围需在提交材料中补全 |
 | PyMuPDF | `pip install pymupdf` | AGPL-3.0 | PDF 渲染与文本层抽取 | 否 |
 | OpenCV | `pip install opencv-python-headless` | Apache-2.0 | 页动画视频合成、缩略图 | 否 |
 | imageio-ffmpeg | `pip install imageio-ffmpeg`（附带 ffmpeg 二进制） | BSD / FFmpeg LGPL | 配音重定时与终版合成 | 否 |
