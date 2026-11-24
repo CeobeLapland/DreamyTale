@@ -19,11 +19,14 @@
 
 - 六本 PDF 共 120 页已入库；六份脚本解析成 300 个 QueryItem / 328 个动作。
 - 文本层：RapidOCR（免费本地）+ 本地视觉模型（LM Studio 的 `qwen3.5-9b`）出页级叙述、实体、可见文字。
-- 生成链路：`StoryPlan`（角色/梗概/逐页节拍）→ `ScenePlan`（页内时间、字幕、seek 别名、视频提示词）→ 检索索引 → 页动画视频 + 配音重定时 + 字幕烧录。
+- 生成链路：`StoryPlan` → `ScenePlan` → 检索索引 → 页动画视频 → edge-tts 旁白 → retime → 字幕烧录 + AAC 混音；终版为 H.264 + faststart。
+- 编排：`pipeline/orchestrator.py` 14 阶段（含 Critic），带依赖、缓存、manifest、trace；`python -m pipeline run --book zh-01` 一条命令出片。
 - 知识层：按官方脚本的每条 qa 问题生成 `QaCard`（三档答案 + 证据 + 视频锚点），运行时直接消费。
-- 交互：`POST /api/interact` 对 control / search / highlight / seek / qa 返回真实结果与证据；缺能力时明确降级，不伪造成功。
+- 交互：`POST /api/interact` 六类动作返回真实结果与证据；`/api/interact/audio` 本地 faster-whisper 转写；无卡问题走运行时 LLM（Qwen）或 guide。
+- 在线编排：`backend/app/conductor.py` 工具注册表 + 规则多意图；每轮写 `data/turns/` 与 `data/traces/`。
+- 阅读器：书架/上传/生成/播放、对话、审核修正、生成链路、评测合并为单页（`/reader/`）。
 - 评测：`python -m pipeline eval --all` 回放 328 个动作，按 kind 分桶给出正确率、证据率与 p50/p95。
-- 还没做完：点击热区（click）、语音识别（ASR）、多 Agent 编排、评测面板与说明书。
+- 还没做完：I2V 重点页、纯视觉物体定位、低置信 ASR 复述确认、六本重跑一致性校验、5 分钟演示视频与说明书。
 
 ## 快速开始
 
@@ -40,6 +43,10 @@ python -m pipeline narrative --all
 # 故事与分镜（需要文本模型）
 python -m pipeline story --all
 python -m pipeline scene --all
+
+# 一条命令跑完整生成链（缓存命中会跳过已完成的阶段）
+python -m pipeline run --book zh-01
+python -m pipeline run --book zh-01 --from index --to critic
 
 # 检索索引 + 知识层（QA 卡）+ 视频
 python -m pipeline index --all
@@ -67,7 +74,8 @@ python -m contracts.validate --all
 python -m pipeline ingest --pdf path/to/book.pdf --book-id my-book --language zh-CN
 ```
 
-依赖：Python 3.11+、`pymupdf`、`pydantic`、`PyYAML`。OCR 可选：
+依赖：Python 3.11+、`pymupdf`、`pydantic`、`PyYAML`、`opencv-python-headless`、`imageio-ffmpeg`。
+旁白需要 `edge-tts`（会调用微软在线语音服务）；OCR 可选：
 
 ```bash
 pip install -r requirements.txt
@@ -101,10 +109,10 @@ docs/          架构与契约
 
 ## 下一步
 
-1. 点击热区：VLM 定位物体并给出 bbox，解 28 个 click 动作。
-2. 语音识别：ASR 适配器接入 `/api/interact/audio`，打通"孩子说话→系统回答"。
-3. 多 Agent 编排：把现有阶段做成可编排、可重试、可追溯的任务链。
-4. 评测面板与说明书：把 `runs/` 的回放结果做成可展示的报告。
+1. 重点页 I2V 与视频内动态物体点击：Scene `objects` 为空，需要 VLM 定位物体 bbox。
+2. 低置信 ASR 复述确认与多轮指代（`last_scene_id/last_entities`）。
+3. 六本全链重跑一致性校验与评测报告页。
+4. 5 分钟演示视频与项目说明书。
 
 ## 赛题
 

@@ -928,6 +928,9 @@ class InteractionResponse(_Base):
     kind: InteractionKind
     action: InteractionAction = Field(default_factory=InteractionAction)
     answer: AnswerPayload | None = None
+    # 语音输入时服务端实际听到的文本；文字输入为 null。
+    # 前端可显示"听到：……"，评测也靠它区分"没听清"和"没答上"。
+    transcript: str | None = None
     latency: LatencyBreakdown = Field(default_factory=LatencyBreakdown)
     status: Literal["ok", "fallback", "error"] = "ok"
     error: ErrorInfo | None = None

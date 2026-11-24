@@ -78,6 +78,44 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual("ok", response.status)
         self.assertEqual("highlight", response.action.type.value)
         self.assertEqual(["span-zh-99-001-001"], response.action.span_ids)
+
+    def test_highlight_this_sentence_uses_the_previous_search(self) -> None:
+        """语音说"高亮这句话"时，要接上一轮真正查找的目标。"""
+        session = "sess-coreference"
+        first = handle_interaction(
+            _request(
+                session_id=session,
+                kind=InteractionKind.search,
+                input={"text": "查找“测试”"},
+            ),
+            self.package,
+        )
+        self.assertEqual("ok", first.status)
+
+        second = handle_interaction(
+            _request(
+                session_id=session,
+                kind=InteractionKind.highlight,
+                input={"text": "高亮这句话"},
+            ),
+            self.package,
+        )
+
+        self.assertEqual("ok", second.status)
+        self.assertEqual("highlight", second.action.type.value)
+        self.assertEqual(["span-zh-99-001-001"], second.action.span_ids)
+
+    def test_seek_falls_back_to_the_page_text(self) -> None:
+        """"找到 X"没有场景命中，但 X 在页上：翻到那一页并引用它。"""
+        response = handle_interaction(
+            _request(kind=InteractionKind.seek, input={"text": "找到测试"}),
+            self.package,
+        )
+
+        self.assertEqual("ok", response.status)
+        self.assertEqual("seek", response.action.type.value)
+        self.assertIn("测试", response.answer.text)
+        self.assertTrue(response.answer.evidence)
         self.assertEqual(AnswerTier.quote, response.answer.tier)
         self.assertEqual(1, response.answer.evidence[0].page_index)
 

@@ -80,6 +80,160 @@ def query_core(query: str) -> str:
     return re.sub(r"\s+", "", text)
 
 
+ENGLISH_STOPWORDS = (
+    "who",
+    "whom",
+    "whose",
+    "what",
+    "which",
+    "where",
+    "when",
+    "why",
+    "how",
+    "is",
+    "are",
+    "was",
+    "were",
+    "do",
+    "does",
+    "did",
+    "can",
+    "could",
+    "would",
+    "will",
+    "shall",
+    "should",
+    "may",
+    "might",
+    "have",
+    "has",
+    "had",
+    "the",
+    "a",
+    "an",
+    "of",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "from",
+    "with",
+    "and",
+    "or",
+    "but",
+    "so",
+    "if",
+    "it",
+    "its",
+    "this",
+    "that",
+    "these",
+    "those",
+    "they",
+    "them",
+    "their",
+    "she",
+    "her",
+    "he",
+    "his",
+    "we",
+    "us",
+    "you",
+    "your",
+    "i",
+    "my",
+    "me",
+    "there",
+    "here",
+    "then",
+    "than",
+    "too",
+    "very",
+    "not",
+    "no",
+    "yes",
+    "any",
+    "some",
+    "one",
+    "again",
+    "does",
+    "look",
+    "look",
+)
+
+_ASCII_WORD = re.compile(r"[a-z0-9']+")
+_CJK = re.compile(r"[\u4e00-\u9fff]")
+
+
+def _fold(text: str) -> str:
+    """Lowercase and collapse whitespace, but keep the word boundaries."""
+    return re.sub(r"\s+", " ", (text or "").lower()).strip()
+
+
+def _stem(word: str) -> str:
+    """A rough stem so "running" also matches "run"."""
+    for suffix in ("ing", "ed", "es", "s"):
+        if len(word) > len(suffix) + 2 and word.endswith(suffix):
+            return word[: -len(suffix)]
+    return word
+
+
+def terms(query: str) -> list[str]:
+    """The content words of a query.
+
+    English questions need word boundaries: "Where is Xiaoman?" must become
+    ["xiaoman"], not the single blob "whereisxiaoman" (which no text ever
+    contains). Chinese has no spaces, so the remaining core is cut into
+    two-character pieces, which is the smallest unit a Chinese reader would
+    recognise as a word.
+    """
+    lowered = _fold(query)
+    words: list[str] = []
+    for word in _ASCII_WORD.findall(lowered):
+        if word in ENGLISH_STOPWORDS or len(word) < 2:
+            continue
+        words.append(word)
+        stem = _stem(word)
+        if stem != word:
+            words.append(stem)
+    core = query_core(query)
+    for index in range(len(core) - 1):
+        piece = core[index : index + 2]
+        if _CJK.search(piece):
+            words.append(piece)
+    return words
+
+
+def term_score(query: str, searchable: str) -> int:
+    """How many characters of the query's content words the text covers."""
+    if not searchable:
+        return 0
+    haystack = _fold(searchable)
+    score = 0
+    for word in terms(query):
+        if word in haystack:
+            score += len(word)
+    return score
+
+
+def char_coverage(query: str, searchable: str) -> float:
+    """Share of the query's Chinese characters that appear in the text.
+
+    Chinese questions rarely repeat the book's wording ("为什么会晃" -> the
+    page says "晃了三晃"), so exact phrase matching misses them. Characters
+    are the last resort, but they still point at the right page.
+    """
+    core = "".join(char for char in query_core(query) if _CJK.search(char))
+    if not core:
+        return 0.0
+    haystack = normalize(searchable)
+    if not haystack:
+        return 0.0
+    hits = sum(1 for char in core if char in haystack)
+    return hits / len(core)
+
+
 def longest_common_substring(left: str, right: str) -> int:
     if not left or not right:
         return 0
@@ -125,9 +279,13 @@ INSTRUCTION_PREFIXES = (
     "请帮我",
     "帮我",
     "请",
+    "查找一下文字",
+    "查找文字",
     "查找一下",
     "查找",
     "找一下",
+    "搜索一下文字",
+    "搜索文字",
     "搜索一下",
     "搜索",
     "高亮文字",
@@ -150,6 +308,11 @@ INSTRUCTION_SUFFIXES = (
     "这句",
     "这句话",
     "文字",
+)
+
+# "查找‘别乱跑’几个字" / "高亮南瓜两个字"：说出字数不是要找的文字。
+_COUNT_SUFFIX = re.compile(
+    r"(?:这|那)?(?:几|[一二三四五六七八九十百千两0-9]+)\s*个?\s*字$"
 )
 
 _QUOTE_PAIRS = (("“", "”"), ("「", "」"), ("『", "』"), ('"', '"'), ("'", "'"))
@@ -183,6 +346,8 @@ def extract_target(text: str) -> str:
         if stripped.startswith(prefix):
             stripped = stripped[len(prefix) :].strip()
             break
+    stripped = stripped.removeprefix("文字").strip()
+    stripped = _COUNT_SUFFIX.sub("", stripped).strip()
     for suffix in INSTRUCTION_SUFFIXES:
         if stripped.endswith(suffix):
             stripped = stripped[: -len(suffix)].strip()

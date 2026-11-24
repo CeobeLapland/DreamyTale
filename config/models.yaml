@@ -42,7 +42,6 @@ vlm:
 
 # Future stages use the same pattern:
 # tts:   { provider: edge_tts }
-# asr:   { provider: faster_whisper }
 i2v:
   provider: volcengine_ark
   fallback: [null]
@@ -76,3 +75,20 @@ llm:
     max_tokens: 900
     temperature: 0.2
     reasoning_effort: none
+
+# Speech input. The model runs locally; CUDA is used when the runtime DLLs are
+# present (LM Studio ships cuBLAS 12) and the provider falls back to CPU int8.
+# `language: auto` matters: the official scripts mix Chinese controls with
+# English questions, even inside an English book.
+asr:
+  provider: faster_whisper
+  fallback: [null]
+  faster_whisper:
+    model: D:/LLM/models/faster-whisper/small
+    device: auto
+    compute_type: auto
+    cpu_threads: 4
+    beam_size: 5
+    # The clips are short commands; trimming silence only loses words.
+    vad_filter: false
+    language: auto

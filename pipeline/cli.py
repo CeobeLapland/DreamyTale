@@ -20,6 +20,7 @@ from contracts.models import BookPackage
 from contracts.validate import main as validate_main
 
 from .config import BOOKS, DATA, DEFAULT_DPI, find_book
+from .asr_eval import run_asr_eval
 from .coverage import analyze_all
 from .eval import run_eval
 from .ingest import ingest_book, ingest_pdf
@@ -27,7 +28,8 @@ from .index import build_index
 from .hotspots import build_hotspots
 from .knowledge import build_knowledge
 from .manual import auto_narrative_records, seed_narrative_corrections
-from .models import build_llm, build_ocr, build_vlm, config_path, status as provider_status
+from .models import build_asr, build_llm, build_ocr, build_vlm, config_path, status as provider_status
+from .orchestrator import STAGE_ORDER, OrchestrationError, run_book
 from .narrative import run_vlm_all
 from .query_sets import parse_script
 from .report import build_report
@@ -317,9 +319,15 @@ def cmd_eval(args: argparse.Namespace) -> int:
     specs = _select(args)
     if not specs:
         raise SystemExit("select --all or --book")
-    report = run_eval(specs, base_url=args.base_url, limit=args.limit)
+    report = run_eval(
+        specs,
+        base_url=args.base_url,
+        limit=args.limit,
+        audio=args.audio,
+    )
     metrics = report["metrics"]
-    print(f"run: {report['run']['run_id']}  cases: {report['results']}")
+    mode = "audio" if args.audio else "text"
+    print(f"run: {report['run']['run_id']}  cases: {report['results']}  mode: {mode}")
     print(f"  overall ok: {metrics['ok']}/{metrics['total']}  fallback_rate={metrics['fallback_rate']}")
     print(f"  by kind: {metrics['by_kind']}")
     print(f"  qa: {metrics['qa_correct']}/{metrics['qa_total']}  evidence_rate={metrics['evidence_rate']}")
@@ -382,6 +390,52 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_run(args: argparse.Namespace) -> int:
+    """Run the registered agent DAG for one or all books."""
+    specs = _select(args)
+    if not specs:
+        raise SystemExit("select --all or --book")
+    failed = 0
+    for spec in specs:
+        try:
+            report = run_book(
+                spec,
+                from_stage=args.from_stage,
+                to_stage=args.to_stage,
+                force=args.force,
+                dry_run=args.dry_run,
+            )
+        except OrchestrationError as exc:
+            report = exc.report
+            failed += 1
+            print(f"book {report.book_id}: FAILED at {report.failed}")
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        if args.dry_run:
+            print(
+                f"book {report.book_id}: dry-run "
+                f"(cached={report.cached}/{len(report.stages)})"
+            )
+        else:
+            print(
+                f"book {report.book_id}: {report.status} "
+                f"cached={report.cached} degraded={report.degraded} "
+                f"{report.seconds:.1f}s"
+            )
+        for stage in report.stages:
+            marker = "cached " if stage.cached else ""
+            detail = f" {stage.detail}" if stage.detail else ""
+            print(
+                f"  {stage.name:10s} {stage.agent:12s} {stage.status:10s} "
+                f"{stage.ms:6d}ms {marker}{detail}".rstrip()
+            )
+        if report.manifest_path:
+            print(f"  manifest: {report.manifest_path}")
+        if report.trace_path:
+            print(f"  trace:    {report.trace_path}")
+    return 1 if failed else 0
+
+
 def cmd_models(_args: argparse.Namespace) -> int:
     print(f"config: {config_path()}")
     print(f"ocr provider: {build_ocr().name}")
@@ -389,6 +443,34 @@ def cmd_models(_args: argparse.Namespace) -> int:
     for item in provider_status():
         state = "available" if item.available else "unavailable"
         print(f"  {item.kind}: {item.provider} -> {state} {item.detail}".rstrip())
+    return 0
+
+
+def cmd_asr(args: argparse.Namespace) -> int:
+    """Transcribe the official WAV set with the same provider the reader uses."""
+    specs = _select(args)
+    if not specs:
+        raise SystemExit("select --all or --book")
+    provider = build_asr()
+    print(f"asr provider: {provider.name}")
+    if not provider.available():
+        print(f"unavailable: {provider.detail or 'not configured'}")
+        return 1
+    for spec in specs:
+        report = run_asr_eval(spec, provider, limit=args.limit)
+        if report.get("error"):
+            print(f"  {spec.book_id}: {report['error']}")
+            continue
+        print(
+            f"  {spec.book_id}: items={report['items']} errors={report['errors']} "
+            f"mean_cer={report['mean_cer']} p50={report['p50_ms']}ms "
+            f"p95={report['p95_ms']}ms {report['seconds']}s -> {report['path']}"
+        )
+        for record in report["worst"][:3]:
+            print(
+                f"     {record['expected']!r} -> {record['text']!r} "
+                f"(cer={record['cer']})"
+            )
     return 0
 
 
@@ -491,6 +573,11 @@ def build_parser() -> argparse.ArgumentParser:
     add_selection(p_eval)
     p_eval.add_argument("--base-url", default="http://127.0.0.1:8000")
     p_eval.add_argument("--limit", type=int, help="only replay the first N actions")
+    p_eval.add_argument(
+        "--audio",
+        action="store_true",
+        help="replay the official WAV files through /api/interact/audio",
+    )
     p_eval.set_defaults(func=cmd_eval)
 
     p_knowledge = sub.add_parser("knowledge", help="build the QA cards for a book")
@@ -515,8 +602,32 @@ def build_parser() -> argparse.ArgumentParser:
     p_report.add_argument("--run", help="run id (default: the latest one)")
     p_report.set_defaults(func=cmd_report)
 
-    p_models = sub.add_parser("models", help="show configured OCR/VLM providers")
+    p_models = sub.add_parser("models", help="show configured OCR/VLM/LLM/ASR providers")
     p_models.set_defaults(func=cmd_models)
+
+    p_run = sub.add_parser(
+        "run",
+        help="run the registered agent DAG (with cache, manifest and trace)",
+    )
+    add_selection(p_run)
+    p_run.add_argument("--from", dest="from_stage", choices=STAGE_ORDER, help="start stage")
+    p_run.add_argument("--to", dest="to_stage", choices=STAGE_ORDER, help="stop after this stage")
+    p_run.add_argument(
+        "--force",
+        action="store_true",
+        help="ignore the cache; re-ingest only with --from ingest",
+    )
+    p_run.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="show the DAG and cache state without running stages",
+    )
+    p_run.set_defaults(func=cmd_run)
+
+    p_asr = sub.add_parser("asr", help="transcribe the official WAV set with the local ASR")
+    add_selection(p_asr)
+    p_asr.add_argument("--limit", type=int, help="only transcribe the first N items per book")
+    p_asr.set_defaults(func=cmd_asr)
 
     p_validate = sub.add_parser("validate", help="validate every book.json and query set")
     p_validate.set_defaults(func=cmd_validate)

@@ -19,13 +19,13 @@
 | 赛题要求 | 状态 | 证据 | 还差 |
 | --- | --- | --- | --- |
 | 内容理解 | **跑通** | `pipeline/understanding.py`（OCR）+ `pipeline/narrative.py`（本地 VLM）出页级叙述、实体、可见文字 | 英文书的 visible_text 靠 VLM，质量待人工抽检 |
-| 互动视频生成 | **有视频** | `pipeline/story.py`→`ScenePlan`→`pipeline/video.py` 页动画 + `pipeline/final.py` 字幕烧录与配音重定时（Ａ 做的）；六本都有 `derived/video/book.mp4` | 真正的文生视频（I2V 要火山方舟密钥）、音轨合并的稳定性 |
-| 实时交互 | **五类真结果** | `POST /api/interact`：control / search / highlight / seek / qa 都返回真实结果与证据 | 语音提问（ASR）、触控万物识别（click 热点） |
-| 多 Agent | 只有架构 | `docs/ARCHITECTURE.md` | 编排器、阶段产物、trace |
+| 互动视频生成 | **跑通** | `pipeline/story.py`→`ScenePlan`→页动画→`final.py` 字幕+H.264+AAC；edge-tts 旁白与 retime 已生效；六本 `final.mp4` 均为 H.264+AAC（1:54–3:27） | 真正的文生视频（I2V 要火山方舟密钥） |
+| 实时交互 | **六类真结果** | `POST /api/interact`：control / search / highlight / seek / qa / click 都返回真实结果与证据；ASR 走本地 faster-whisper；无卡问题走运行时 LLM 或 guide | 纯视觉物体定位、低置信 ASR 复述确认 |
+| 多 Agent | **跑通** | `pipeline/orchestrator.py` 14 阶段（含 Critic）、缓存、manifest、trace；`backend/app/conductor.py` 在线工具注册表与多意图 | 并发执行、ArtDirector 汇总、逐工具 provider/model 记录 |
 | 回答正确率 | **能测了** | `pipeline/eval.py` 回放 328 个动作：206/328（62.8%），qa 76/117（65%） | qa 的语义对错还要人工抽检 |
-| 延迟 | 已测（服务内） | p50=0ms、p95=3ms | 端到端（含前端与媒体）p50/p95 |
-| 可复现 | 有清单 | `derived/manifest.json`（阶段、哈希、降级原因） | 重跑一致性的自动校验 |
-| 人工修正 | **能用了** | `pipeline/manual.py`：人工叙述优先于自动，自动记录保留为 `superseded` | 审核队列、审核页 |
+| 延迟 | 已测 | 文字问答约 1.2s；语音 control 353ms、卡片问答 260ms（ASR 252ms） | 分 kind 的 p50/p95 与前端端到端统计 |
+| 可复现 | 有清单 | `derived/manifest.json`（阶段、哈希、降级原因）；zh-01 14 阶段全链 | 六本重跑一致性的自动校验 |
+| 人工修正 | **能用了** | `pipeline/annotations.py` + 阅读器“审核修正”标签：热区/文字块/问答卡、冲突队列、批量 JSON | alias/fact 编辑、字段级回滚 |
 | 通用性 | 六本全跑通 | 同一套命令跑完六本；素材路径走环境变量；中文名乱码兜底 | 真·没见过的书冷启动实测 |
 
 ### 各人这一段做了什么（都在同一棵树上，没有重复造轮子）
@@ -68,16 +68,17 @@ qa 与 click 还能再涨：两者都需要本地模型开着（`--use-llm` / `-
 **没有偏离，而且分工现在是清楚的。**
 
 赛题四项里，内容理解、互动视频生成、实时交互都已经在同一条链路上跑出真实产物；
-剩下的多 Agent 编排、ASR、热点、评测面板是明确的后续，不是返工。
+多 Agent 编排也已有 14 阶段编排器、Critic 与在线 Conductor。
+剩下的 I2V 真实生成、纯视觉物体定位、评测面板与六本一致性校验是明确的后续，不是返工。
 
 对照赛题原文：
 
 | 赛题核心任务 | 状态 |
 | --- | --- |
 | (1) 内容理解：OCR/VLM 提取图文与叙事结构 | ✅ |
-| (2) 互动视频生成：含文生故事、文生视频、语音，风格一致与页间连贯 | ⚠️ 故事/分镜/视频/字幕有；文生视频与配音按可选接入 |
-| (3) 实时交互：语音提问、触控式万物识别 | ⚠️ 文字交互五类有；语音与点击待补 |
-| (4) 多 Agent 协同：可编排、可复用 | ❌ 只有架构文档 |
+| (2) 互动视频生成：含文生故事、文生视频、语音，风格一致与页间连贯 | ✅ 故事/分镜/页动画/字幕/旁白有；I2V 按可选接入 |
+| (3) 实时交互：语音提问、触控式万物识别 | ✅ 文字六类 + 本地 ASR + 运行时 LLM 兜底；纯视觉物体定位待补 |
+| (4) 多 Agent 协同：可编排、可复用 | ✅ 编排器 + Critic + 缓存/manifest/trace + 在线工具注册表 |
 
 **基础门槛**：正确率 ≥0.60 —— 现在有 62.8% 的可测数字（qa 65%，语义对错待人工抽检）；
 延迟已测；可复现有 manifest 与哈希，缺重跑一致性校验。

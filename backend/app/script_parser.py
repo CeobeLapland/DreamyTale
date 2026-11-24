@@ -85,9 +85,15 @@ def _control_action(text: str) -> ControlAction | None:
     exact = _CONTROL_EXACT.get(normalized)
     if exact is not None:
         return exact
-    for keyword, action in _CONTROL_KEYWORDS:
-        if keyword in normalized:
-            return action
+    # 取最先出现的控制词：ASR 偶尔会把 "Play" 转成 "播放 继续"，
+    # 固定优先级会把它误判成 resume。句子里先说的是哪个就听哪个。
+    positions = [
+        (normalized.find(keyword), action)
+        for keyword, action in _CONTROL_KEYWORDS
+        if keyword in normalized
+    ]
+    if positions:
+        return min(positions, key=lambda item: item[0])[1]
     return None
 
 

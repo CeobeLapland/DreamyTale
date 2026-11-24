@@ -39,11 +39,11 @@ class JobNotFoundError(LookupError):
 
 
 class GenerationRunner(Protocol):
-    def run(self, book_id: str, report: ProgressReporter) -> None: ...
+    def run(self, book_id: str, report: ProgressReporter) -> object | None: ...
 
 
 class UnavailableGenerationRunner:
-    def run(self, book_id: str, report: ProgressReporter) -> None:
+    def run(self, book_id: str, report: ProgressReporter) -> object | None:
         raise RuntimeError("generation pipeline is not configured")
 
 
@@ -203,7 +203,7 @@ class JobManager:
             )
 
         try:
-            self.runner.run(book_id, report)
+            result = self.runner.run(book_id, report)
         except Exception as exc:
             message = str(exc).strip() or exc.__class__.__name__
             code = error_code_for(stage, exc)
@@ -215,11 +215,15 @@ class JobManager:
                 retryable=code not in NON_RETRYABLE_ERROR_CODES,
             )
             return
+        manifest_path = getattr(result, "manifest_path", None)
+        degraded = getattr(result, "status", "") == "degraded"
         self.store.update(
             job_id,
-            status=JobStatus.completed.value,
+            status=JobStatus.degraded.value if degraded else JobStatus.completed.value,
             stage=JobStage.index.value,
             progress=1.0,
+            degraded=degraded,
+            manifest_path=manifest_path,
             clear_error=True,
         )
 

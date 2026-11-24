@@ -14,6 +14,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from backend.app.guide import build_guide_answer, page_start_times
 from backend.app.interaction import handle_interaction
@@ -44,6 +45,12 @@ class GuideTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
+        # Unit tests must not depend on whether LM Studio is running.
+        self.llm_patch = mock.patch(
+            "backend.app.interaction.build_llm_answer", return_value=None
+        )
+        self.llm_patch.start()
+        self.addCleanup(self.llm_patch.stop)
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -176,6 +183,53 @@ class GuideTests(unittest.TestCase):
 
         self.assertNotIn("抱歉", response.answer.text)
         self.assertNotIn("无法回答", response.answer.text)
+
+    def test_title_page_is_not_quoted(self) -> None:
+        """封面/版权页没有句读，不能当成原句念给孩子听。"""
+        payload = valid_package()
+        payload["pages"][0]["text"] = "学而思阅读树儿童中文分级读物学而思大阅读搭积乐吧"
+        payload["pages"][0]["text_spans"][0]["text"] = "学而思"
+        package = book_package_from_dict(payload)
+        package_root = self.root / "zh-99"
+        package_root.mkdir(parents=True)
+        self._write_timeline(package_root)
+
+        guide = build_guide_answer(
+            package, package_root, "这本书讲什么？", "zh-CN", current_page=1
+        )
+
+        self.assertIsNotNone(guide)
+        self.assertNotIn("学而思", guide.text)
+        self.assertIn("第 1 页", guide.text)
+        self.assertIn("？", guide.text)
+
+    def test_unknown_page_falls_back_to_the_first_page(self) -> None:
+        """调用方给了不在书里的页码时，退到第一页，不能变成死胡同。"""
+        package = book_package_from_dict(_package_with_text())
+        package_root = self.root / "zh-99"
+        package_root.mkdir(parents=True)
+        self._write_timeline(package_root)
+
+        guide = build_guide_answer(
+            package, package_root, "积木是谁搭的？", "zh-CN", current_page=99
+        )
+
+        self.assertIsNotNone(guide)
+        self.assertEqual(1, guide.page_index)
+        self.assertIn("第 1 页", guide.text)
+
+    def test_question_ending_in_ma_does_not_double_the_particle(self) -> None:
+        package = book_package_from_dict(_package_with_text())
+        package_root = self.root / "zh-99"
+        package_root.mkdir(parents=True)
+        self._write_timeline(package_root)
+
+        guide = build_guide_answer(
+            package, package_root, "城堡最后倒了吗？", "zh-CN", current_page=1
+        )
+
+        self.assertIsNotNone(guide)
+        self.assertNotIn("吗吗", guide.text)
 
 
 if __name__ == "__main__":

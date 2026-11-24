@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import time
 import uuid
@@ -77,6 +78,55 @@ def _ascii_temp_root() -> Path:
 
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def ensure_h264(path: Path) -> bool:
+    """Re-encode OpenCV's MPEG-4 Part 2 output to H.264.
+
+    `cv2.VideoWriter` with the `mp4v` fourcc produces MPEG-4 Part 2, which
+    Chromium refuses to play. Browsers only accept H.264 here, so every clip is
+    remuxed with the bundled ffmpeg. If ffmpeg is missing the clip is kept as
+    is: a degraded video is better than a failed stage.
+    """
+    try:
+        import imageio_ffmpeg
+    except ImportError:
+        return False
+
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    temporary = path.with_name(f"{path.stem}-h264{path.suffix}")
+    completed = subprocess.run(
+        [
+            ffmpeg,
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(path),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "20",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-movflags",
+            "+faststart",
+            str(temporary),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if completed.returncode != 0:
+        temporary.unlink(missing_ok=True)
+        return False
+    os.replace(temporary, path)
+    return True
 
 
 @contextmanager
@@ -227,6 +277,8 @@ def render_scene_animation(
         finally:
             writer.release()
 
+        ensure_h264(temporary_output)
+
     return out_path
 
 
@@ -314,6 +366,8 @@ def compose_book(
                         capture.release()
         finally:
             writer.release()
+
+        ensure_h264(temporary_book)
 
     return book_path
 

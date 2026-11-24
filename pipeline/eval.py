@@ -183,7 +183,7 @@ def _request_for(
     request = InteractionRequest(
         request_id=None,
         book_id=case.book_id,
-        session_id=f"eval-{case.case_id}",
+        session_id=f"eval-{case.book_id}",
         kind=case.kind,
         input={
             "text": text,
@@ -298,30 +298,31 @@ def run_case(
     base_url: str,
     timeout: float = 120.0,
     current_page: int | None = None,
+    audio_path: Path | None = None,
 ) -> EvalResult:
-    request, url = _request_for(case, base_url, current_page)
-    if request is None:
-        # The action cannot even be asked: there is no hotspot to click.
-        return EvalResult(
-            case_id=case.case_id,
-            request_id=None,
-            kind=case.kind,
-            status="fallback",
-            verdict="miss",
-            answer_text=None,
-            action=None,
-            scene_id=None,
-            evidence=[],
-            latency_ms=0,
-            asr_text=None,
-            notes="no_hotspot_for_target",
-        )
     started = time.perf_counter()
-    notes = ""
-    try:
-        response = requests.post(url, json=request.model_dump(mode="json"), timeout=timeout)
-        elapsed = int((time.perf_counter() - started) * 1000)
-        if response.status_code != 200:
+    if audio_path is not None:
+        url = f"{base_url.rstrip('/')}/api/interact/audio"
+        request_payload = {
+            "book_id": case.book_id,
+            # 同一本书用同一会话，回放才能还原"高亮这句话"这类指代。
+            "session_id": f"eval-{case.book_id}",
+            "kind": "auto",
+            "input": {
+                "page_index": current_page,
+                "language": case.lang,
+            },
+            "context": {"last_page_index": current_page} if current_page else {},
+        }
+        try:
+            with audio_path.open("rb") as handle:
+                response = requests.post(
+                    url,
+                    files={"audio": (audio_path.name, handle, "audio/wav")},
+                    data={"request": json.dumps(request_payload, ensure_ascii=False)},
+                    timeout=timeout,
+                )
+        except requests.RequestException as exc:
             return EvalResult(
                 case_id=case.case_id,
                 request_id=None,
@@ -332,12 +333,48 @@ def run_case(
                 action=None,
                 scene_id=None,
                 evidence=[],
-                latency_ms=elapsed,
+                latency_ms=int((time.perf_counter() - started) * 1000),
                 asr_text=None,
-                notes=f"http_{response.status_code}",
+                notes=f"{type(exc).__name__}: {exc}"[:200],
             )
-        payload = response.json()
-    except requests.RequestException as exc:
+    else:
+        request, url = _request_for(case, base_url, current_page)
+        if request is None:
+            # The action cannot even be asked: there is no hotspot to click.
+            return EvalResult(
+                case_id=case.case_id,
+                request_id=None,
+                kind=case.kind,
+                status="fallback",
+                verdict="miss",
+                answer_text=None,
+                action=None,
+                scene_id=None,
+                evidence=[],
+                latency_ms=0,
+                asr_text=None,
+                notes="no_hotspot_for_target",
+            )
+        try:
+            response = requests.post(url, json=request.model_dump(mode="json"), timeout=timeout)
+        except requests.RequestException as exc:
+            return EvalResult(
+                case_id=case.case_id,
+                request_id=None,
+                kind=case.kind,
+                status="error",
+                verdict="wrong",
+                answer_text=None,
+                action=None,
+                scene_id=None,
+                evidence=[],
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                asr_text=None,
+                notes=f"{type(exc).__name__}: {exc}"[:200],
+            )
+
+    elapsed = int((time.perf_counter() - started) * 1000)
+    if response.status_code != 200:
         return EvalResult(
             case_id=case.case_id,
             request_id=None,
@@ -348,10 +385,11 @@ def run_case(
             action=None,
             scene_id=None,
             evidence=[],
-            latency_ms=int((time.perf_counter() - started) * 1000),
+            latency_ms=elapsed,
             asr_text=None,
-            notes=f"{type(exc).__name__}: {exc}"[:200],
+            notes=f"http_{response.status_code}",
         )
+    payload = response.json()
 
     verdict, notes = _judge(case, payload)
     answer = payload.get("answer") or {}
@@ -368,8 +406,8 @@ def run_case(
         action=action or None,
         scene_id=action.get("scene_id"),
         evidence=answer.get("evidence") or [],
-        latency_ms=int(latency if latency is not None else (time.perf_counter() - started) * 1000),
-        asr_text=None,
+        latency_ms=int(latency if latency is not None else elapsed),
+        asr_text=payload.get("transcript"),
         notes=notes or None,
     )
 
@@ -448,9 +486,24 @@ def run_eval(
     specs: list[BookSpec],
     base_url: str = DEFAULT_BASE_URL,
     limit: int | None = None,
+    audio: bool = False,
 ) -> dict[str, Any]:
-    """Replay every action and write the contract's EvalRun artifacts."""
+    """Replay every action and write the contract's EvalRun artifacts.
+
+    With `audio=True`, each query item is replayed through
+    `/api/interact/audio` using the WAV the organisers recorded. Only the first
+    action of an item is judged: the audio is the instruction, while extra
+    `[点击]` actions are pointer clicks and have no recording.
+    """
     cases = load_cases(specs)
+    if audio:
+        cases = [
+            case
+            for case in cases
+            if case.audio_path
+            and case.case_id.endswith("-01")
+            and (DATA / case.book_id / str(case.audio_path)).is_file()
+        ]
     if limit:
         cases = cases[:limit]
     run_id = f"run-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
@@ -463,7 +516,10 @@ def run_eval(
     current_page: dict[str, int] = {}
     for case in cases:
         page = current_page.get(case.book_id)
-        results.append(run_case(case, base_url, current_page=page))
+        source = DATA / case.book_id / str(case.audio_path) if audio else None
+        results.append(
+            run_case(case, base_url, current_page=page, audio_path=source)
+        )
         landed = _landed_page(results[-1], case.book_id)
         if landed:
             current_page[case.book_id] = landed

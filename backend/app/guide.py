@@ -48,12 +48,14 @@ def _sentences(text: str) -> list[str]:
     return [part.strip() for part in _SENTENCE_SPLIT.split(text or "") if part.strip()]
 
 
-def page_start_times(package_root: Path) -> dict[int, int]:
+def page_start_times(package_root: Path | None) -> dict[int, int]:
     """每一页在全书视频里的起始时间（毫秒，全书绝对时间）。
 
     `Scene.start_ms` 是相对页面的，播放器要的是全书绝对时间，
     两者差一个页偏移。不换算的话每次定位都落在第 0 毫秒，也就是第一页。
     """
+    if package_root is None:
+        return {}
     path = package_root / "derived" / "scene" / "timeline.json"
     if not path.is_file():
         return {}
@@ -108,6 +110,10 @@ def _quote_of(page: Any) -> tuple[str, Evidence | None]:
     ]
     if not sentences:
         return "", None
+    # A page with no sentence punctuation at all is a cover/title page: its
+    # "text" is a pile of short labels, not something to read to a child.
+    if not re.search(r"[。！？!?，,.;；:：]", text):
+        return "", None
 
     quote = sentences[0]
     evidence = Evidence(
@@ -150,6 +156,8 @@ def _compose(language: str, page_index: int, quote: str, question: str) -> str:
     引得到原句就引；引不到就不引——宁可少一句，也不能编一句。
     """
     tail = (question or "").strip().rstrip("？?。.!！").strip()
+    # 问句本身以"吗/呢/吧"结尾时，后面的反问不要再叠一个"吗"。
+    tail = re.sub(r"[吗呢吧]$", "", tail).strip()
     if language.lower().startswith("en"):
         parts = [
             "I could not find a line in this book that answers that directly.",
@@ -194,7 +202,10 @@ def build_guide_answer(
         target = package.pages[0].index
     page = next((item for item in package.pages if item.index == target), None)
     if page is None:
-        return None
+        # 调用方给的页码不在书里（例如 0 或已过期）：退到第一页。
+        # 这是"拿不到当前页"的兜底，不是猜某一页。
+        page = package.pages[0]
+        target = page.index
 
     quote, evidence = _quote_of(page)
     if not quote:

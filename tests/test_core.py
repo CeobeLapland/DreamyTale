@@ -7,6 +7,7 @@ import unittest
 from pydantic import ValidationError
 
 from contracts.models import BookPackage, Page, PageBlock, QueryAction, QueryItem, QuerySet, TextSpan
+from contracts.retrieval import extract_target
 from pipeline.query_sets import _classify, _detect_lang, _split_click
 
 
@@ -176,6 +177,25 @@ class QueryParserTests(unittest.TestCase):
         self.assertEqual(_detect_lang("播放").value, "zh")
         self.assertEqual(_detect_lang("What happened?").value, "en")
         self.assertEqual(_detect_lang("查找文字“POPCORN”").value, "mixed")
+
+
+class RetrievalTargetTests(unittest.TestCase):
+    """语音转写没有引号，目标抽取要能去掉"文字/几个字"这些口语尾巴。"""
+
+    def test_quoted_target_is_unchanged(self) -> None:
+        self.assertEqual("bats", extract_target("高亮文字“bats”"))
+        self.assertEqual("KARATE", extract_target("查找文字“KARATE”"))
+
+    def test_text_word_after_instruction_is_removed(self) -> None:
+        self.assertEqual("Popcorn", extract_target("查找文字 Popcorn"))
+
+    def test_count_suffix_is_removed(self) -> None:
+        self.assertEqual("兔子妈妈", extract_target("高亮 兔子妈妈几个字"))
+        self.assertEqual("桃子", extract_target("查找桃子两个字"))
+
+    def test_scene_suffix_is_removed(self) -> None:
+        self.assertEqual("搭了九块积木", extract_target("找到搭了九块积木的画面"))
+        self.assertEqual("还不倒", extract_target("找到 还不倒"))
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -22,16 +23,19 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from backend.app.capability import build_capability_report, write_capability_report
+from backend.app.conductor import describe_tools, run_interaction
 from backend.app.ingest import ingest_book
 from backend.app.ingest_jobs import IngestionJobManager
-from backend.app.interaction import handle_interaction
 from backend.app.jobs import JobManager, JobNotFoundError, JobStore
+from backend.app.knowledge import load_qa_cards
 from backend.app.generation_runner import PipelineGenerationRunner
 from backend.app.models import (
+    AnnotationTargetType,
     InteractionKind,
     InteractionRequest,
     InteractionResponse,
 )
+from backend.app.session_log import latest_eval_run, read_traces, read_turns
 from backend.app.store import (
     BookNotFoundError,
     BookStore,
@@ -44,6 +48,13 @@ from backend.app.plans import (
     load_story_plan,
     load_timeline,
 )
+from pipeline.annotations import (
+    create_annotation,
+    load_annotations,
+    load_review_items,
+)
+from pipeline.models.registry import load_config, status as provider_status
+from pipeline.tts import edge_tts_available
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -65,6 +76,16 @@ class IngestRequest(BaseModel):
     book_key: str
     force: bool = False
     render_scale: float = Field(default=2.0, gt=0, le=4)
+
+
+class AnnotationRequest(BaseModel):
+    target_type: AnnotationTargetType
+    target_id: str
+    field: str
+    value: Any
+    reviewer: str = Field(min_length=1)
+    reason: str | None = None
+    old_value: Any | None = None
 
 
 app = FastAPI(
@@ -236,6 +257,56 @@ def get_capability(book_id: str) -> dict[str, object]:
     _record_capabilities_path(package_root, "derived/capability.json")
     return report.model_dump(mode="json")
 
+
+@app.get("/api/books/{book_id}/annotations")
+def list_annotations(book_id: str) -> list[dict[str, object]]:
+    books.load(book_id)
+    package_root = books.root / book_id
+    return [
+        annotation.model_dump(mode="json")
+        for annotation in load_annotations(book_id, package_root)
+    ]
+
+
+@app.post("/api/books/{book_id}/annotations", status_code=201)
+def post_annotation(book_id: str, request: AnnotationRequest) -> dict[str, object]:
+    package = books.load(book_id)
+    package_root = books.root / book_id
+    cards = (
+        load_qa_cards(package_root)
+        if request.target_type is AnnotationTargetType.qa_card
+        else []
+    )
+    annotation, review = create_annotation(
+        book_id,
+        request.target_type,
+        request.target_id,
+        request.field,
+        request.value,
+        request.reviewer,
+        reason=request.reason,
+        old_value=request.old_value,
+        package=package,
+        cards=cards,
+        package_root=package_root,
+    )
+    return {
+        "annotation": annotation.model_dump(mode="json"),
+        "conflict": review is not None,
+        "review_item": review.model_dump(mode="json") if review else None,
+    }
+
+
+@app.get("/api/books/{book_id}/review-items")
+def get_review_items(book_id: str) -> list[dict[str, object]]:
+    books.load(book_id)
+    package_root = books.root / book_id
+    return [
+        item.model_dump(mode="json")
+        for item in load_review_items(book_id, package_root)
+    ]
+
+
 @app.get("/api/books/{book_id}/story-plan")
 def get_story_plan(book_id: str) -> dict[str, object]:
     package = books.load(book_id)
@@ -321,9 +392,14 @@ def get_job(job_id: str) -> dict[str, object]:
 
 @app.post("/api/interact", response_model=InteractionResponse)
 def interact(request: InteractionRequest) -> InteractionResponse:
-    """v2 交互协议入口：没有 ASR/LLM/TTS 的部分一律返回 fallback，不伪造成功。"""
+    """v2 交互入口：在线 Conductor 选工具执行，每轮落 Turn + Trace。"""
     package = books.load(request.book_id)
-    return handle_interaction(request, package, books.package_root(request.book_id))
+    return run_interaction(
+        request,
+        package,
+        books.package_root(request.book_id),
+        data_root=books.root.parent,
+    )
 
 
 @app.post("/api/qa", response_model=InteractionResponse)
@@ -332,11 +408,91 @@ def qa(request: InteractionRequest) -> InteractionResponse:
     payload = request.model_dump()
     payload["kind"] = InteractionKind.qa
     package = books.load(request.book_id)
-    return handle_interaction(
+    return run_interaction(
         InteractionRequest.model_validate(payload),
         package,
         books.package_root(request.book_id),
+        data_root=books.root.parent,
     )
+
+
+@app.get("/api/tools")
+def list_tools() -> list[dict[str, str]]:
+    """在线工具注册表：前端“链路”面板直接展示这份清单。"""
+    return describe_tools()
+
+
+@app.get("/api/providers")
+def list_providers() -> list[dict[str, object]]:
+    """Configured model providers and whether they are usable right now."""
+    config = load_config()
+    rows: list[dict[str, object]] = []
+    for item in provider_status(config):
+        section = config.get(item.kind, {}) or {}
+        # The runtime name (e.g. "chat_llm") is not always the config key
+        # ("openai_compatible"); fall back to the section's own option block.
+        options = section.get(item.provider) or section.get("openai_compatible") or {}
+        rows.append(
+            {
+                "kind": item.kind,
+                "provider": item.provider,
+                "available": item.available,
+                "detail": item.detail,
+                "model": str(
+                    options.get("model")
+                    or options.get("model_env")
+                    or ""
+                ),
+                "base_url": str(options.get("base_url") or ""),
+            }
+        )
+    rows.append(
+        {
+            "kind": "tts",
+            "provider": "edge_tts",
+            "available": edge_tts_available(),
+            "detail": "" if edge_tts_available() else "edge-tts not installed",
+            "model": "zh-CN-XiaoyiNeural / en-US-AriaNeural",
+            "base_url": "",
+        }
+    )
+    return rows
+
+
+@app.get("/api/books/{book_id}/turns")
+def get_turns(
+    book_id: str,
+    session_id: str | None = None,
+    limit: int = 50,
+) -> list[dict[str, object]]:
+    books.load(book_id)
+    return read_turns(
+        book_id,
+        data_root=books.root.parent,
+        session_id=session_id,
+        limit=max(1, min(limit, 200)),
+    )
+
+
+@app.get("/api/books/{book_id}/traces")
+def get_traces(
+    book_id: str,
+    session_id: str | None = None,
+    limit: int = 30,
+) -> list[dict[str, object]]:
+    books.load(book_id)
+    return read_traces(
+        book_id,
+        data_root=books.root.parent,
+        session_id=session_id,
+        limit=max(1, min(limit, 100)),
+    )
+
+
+@app.get("/api/eval/latest")
+def get_latest_eval() -> dict[str, object]:
+    """最近一次 `python -m pipeline eval` 的 run.json；没有就返回空对象。"""
+    return latest_eval_run(REPOSITORY_ROOT) or {}
 
 
 def _record_capabilities_path(package_root: Path, relative: str) -> None:

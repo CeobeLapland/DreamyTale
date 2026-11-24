@@ -33,7 +33,13 @@ from contracts.models import (
     VideoAnchor,
     content_hash,
 )
-from contracts.retrieval import normalize, overlap_score, query_core
+from contracts.retrieval import (
+    char_coverage,
+    normalize,
+    overlap_score,
+    query_core,
+    term_score,
+)
 
 from .config import DATA, BookSpec
 from .index import load_scene_index
@@ -102,39 +108,92 @@ def _guide_answer(question: str, page_index: int, quote: str) -> str:
     return f"我们翻到第 {page_index} 页看看吧：{hint}……你从画面里看出{bare}了吗？"
 
 
-def _best_page(question: str, pages: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, int]:
+def _best_page(question: str, pages: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, float]:
     """The page the question is about, scored on the book's own words.
 
-    The page text comes first: the question usually reuses the words of the
-    book. The narrative only helps when the book has no text layer.
+    Four signals, because no single one covers every question:
+
+    - the page text (the book's printed words, the strongest evidence)
+    - the page narrative (what the vision model described)
+    - the story plan for that page (the beat narration, in the book's voice)
+    - the scene aliases and entities (the words a child would use)
+
+    English questions are matched word by word ("xiaoman" has to appear),
+    Chinese questions fall back to character coverage, because a Chinese
+    question rarely repeats the book's wording verbatim.
     """
     core = query_core(question)
     best: dict[str, Any] | None = None
-    best_score = 0
+    best_score = 0.0
     for page in pages:
-        text_score = overlap_score(core, normalize(str(page.get("text") or "")))
-        narrative_score = overlap_score(
-            core, normalize(str(page.get("narrative") or ""))
-        )
-        score = text_score * 2 + narrative_score
+        score = _page_score(question, core, page)
         if score > best_score:
             best_score = score
             best = page
     return best, best_score
 
 
+def _page_score(question: str, core: str, page: dict[str, Any]) -> float:
+    text = normalize(str(page.get("text") or ""))
+    narrative = normalize(str(page.get("narrative") or ""))
+    story = normalize(str(page.get("story") or ""))
+    aliases = normalize(str(page.get("aliases") or ""))
+
+    score = overlap_score(core, text) * 2.0
+    score += overlap_score(core, narrative) * 1.5
+    score += overlap_score(core, story) * 1.0
+    score += overlap_score(core, aliases) * 1.0
+    # Word level match for English, character coverage for Chinese.
+    score += term_score(question, text) * 1.5
+    score += term_score(question, narrative + " " + story) * 0.8
+    score += char_coverage(question, text) * 4.0
+    score += char_coverage(question, narrative + " " + story) * 2.0
+    return score
+
+
+def _is_grounded(question: str, core: str, page: dict[str, Any]) -> bool:
+    """Is there real evidence on this page that it answers the question?
+
+    A card is a promise that this page answers the question. When the only
+    thing in common is one stray character, that promise would be a confident
+    wrong answer, so the question is left uncovered instead.
+    """
+    text = str(page.get("text") or "")
+    narrative = str(page.get("narrative") or "")
+    story = str(page.get("story") or "")
+    if overlap_score(core, normalize(text)) >= 2:
+        return True
+    if overlap_score(core, normalize(narrative)) >= 2:
+        return True
+    if overlap_score(core, normalize(story)) >= 2:
+        return True
+    # An English content word of three letters or more is real evidence.
+    if term_score(question, text + " " + narrative + " " + story) >= 3:
+        return True
+    # A Chinese question whose characters mostly appear on the page.
+    if len(core) >= 3 and char_coverage(question, text + " " + narrative + " " + story) >= 0.6:
+        return True
+    return False
+
+
 def _pick_quote(question: str, page: dict[str, Any]) -> str:
     """The sentence of the page that answers the question best."""
     core = query_core(question)
     best = ""
-    best_score = 0
-    for sentence in _split_sentences(str(page.get("text") or "")) + _split_sentences(
-        str(page.get("narrative") or "")
-    ):
-        score = overlap_score(core, normalize(sentence))
-        if score > best_score:
-            best_score = score
-            best = sentence
+    best_score = 0.0
+    sources = (
+        str(page.get("text") or ""),
+        str(page.get("narrative") or ""),
+        str(page.get("story") or ""),
+    )
+    for source in sources:
+        for sentence in _split_sentences(source):
+            score = overlap_score(core, normalize(sentence))
+            score += term_score(question, sentence) * 0.5
+            score += char_coverage(question, sentence) * 2.0
+            if score > best_score:
+                best_score = score
+                best = sentence
     return best.strip()
 
 
@@ -274,7 +333,7 @@ def _cards_from_queries(
 
             answered = _answer_with_llm(llm, question, pages, language) if llm else None
             page: dict[str, Any] | None = None
-            score = 0
+            score = 0.0
             if answered:
                 page = next(
                     (item for item in pages if int(item.get("index") or 0) == answered["page_index"]),
@@ -282,11 +341,12 @@ def _cards_from_queries(
                 )
             if page is None:
                 page, score = _best_page(question, pages)
-                if page is None or score < 2:
+                core = query_core(question)
+                if page is None or not _is_grounded(question, core, page):
                     # No page really talks about this question; a card without
                     # evidence would only look like a confident wrong answer.
                     # The question is written down instead, so the gap is
-                    # visible rather than silently missing.
+                    # visible instead of silently missing.
                     uncovered.append(question)
                     continue
                 quote = _pick_quote(question, page)
@@ -350,6 +410,33 @@ def build_knowledge(spec: BookSpec, llm: Any = None) -> dict[str, Any]:
         for record in auto_narrative_records(spec.book_id)
         if record.get("page_index")
     }
+    scenes_by_page: dict[int, list[dict[str, Any]]] = {}
+    for scene in load_scene_index(spec.book_id).get("scenes", []):
+        scenes_by_page.setdefault(int(scene.get("page_index") or 0), []).append(scene)
+
+    # The story plan carries the beat narration: the same scene in the book's
+    # own voice. It answers questions the printed text does not.
+    story_by_page: dict[int, str] = {}
+    story_path = DATA / spec.book_id / "derived" / "story" / "story_plan.json"
+    if story_path.is_file():
+        plan = json.loads(story_path.read_text(encoding="utf-8"))
+        for entry in plan.get("pages", []):
+            chunks: list[str] = []
+            for beat in entry.get("beats", []):
+                chunks.append(str(beat.get("description") or ""))
+                chunks.append(str(beat.get("narration") or ""))
+            chunks.append(str(entry.get("state_before") or ""))
+            chunks.append(str(entry.get("state_after") or ""))
+            story_by_page[int(entry.get("page_index") or 0)] = " ".join(chunks)
+
+    alias_by_page: dict[int, list[str]] = {}
+    for page_index, scenes in scenes_by_page.items():
+        words: list[str] = []
+        for scene in scenes:
+            words.extend(str(alias) for alias in scene.get("aliases") or [])
+            words.extend(str(entity) for entity in scene.get("entities") or [])
+        alias_by_page[page_index] = words
+
     pages: list[dict[str, Any]] = []
     for page in book.get("pages", []):
         narrative = narratives.get(int(page.get("index") or 0), {})
@@ -360,12 +447,10 @@ def build_knowledge(spec: BookSpec, llm: Any = None) -> dict[str, Any]:
                 "narrative": str(narrative.get("text") or ""),
                 "entities": list(narrative.get("entities") or []),
                 "spans": page.get("text_spans") or [],
+                "story": story_by_page.get(int(page.get("index") or 0), ""),
+                "aliases": alias_by_page.get(int(page.get("index") or 0), []),
             }
         )
-
-    scenes_by_page: dict[int, list[dict[str, Any]]] = {}
-    for scene in load_scene_index(spec.book_id).get("scenes", []):
-        scenes_by_page.setdefault(int(scene.get("page_index") or 0), []).append(scene)
 
     started = time.perf_counter()
     uncovered: list[str] = []
@@ -385,15 +470,12 @@ def build_knowledge(spec: BookSpec, llm: Any = None) -> dict[str, Any]:
         for card in cards:
             handle.write(card.model_dump_json(exclude_none=False) + "\n")
 
-    # 答不上的问题也写下来：列出来的缺口可以继续做，
-    # 只被一个数字盖过去的缺口只能靠猜。
+    # The questions we could not ground are written down as well: a gap that
+    # is listed can be worked on, a gap that is not counted can only be
+    # guessed at.
     uncovered_path = out_dir / UNCOVERED_FILE
     uncovered_path.write_text(
-        json.dumps(
-            {"book_id": spec.book_id, "questions": uncovered},
-            ensure_ascii=False,
-            indent=2,
-        ),
+        json.dumps({"book_id": spec.book_id, "questions": uncovered}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 

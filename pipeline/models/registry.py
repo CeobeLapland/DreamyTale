@@ -13,7 +13,8 @@ from typing import Any
 
 import yaml
 
-from .base import OCRProvider, VLMProvider
+from .asr import FasterWhisperASR, NullASR
+from .base import ASRProvider, OCRProvider, VLMProvider
 from .i2v import I2VProvider, NullI2V
 from .llm import ChatLLM
 from .null import NullOCR, NullVLM
@@ -85,6 +86,13 @@ def _make_llm(name: str, section: dict[str, Any]) -> ChatLLM:
     return ChatLLM(base_url="", model="")
 
 
+def _make_asr(name: str, section: dict[str, Any]) -> ASRProvider:
+    if name == "faster_whisper":
+        opts = section.get("faster_whisper", {}) or {}
+        return FasterWhisperASR(**opts)
+    return NullASR(f"unknown ASR provider: {name}")
+
+
 def _make_i2v(name: str, section: dict[str, Any]) -> I2VProvider:
     if name == "volcengine_ark":
         opts = section.get("volcengine_ark", {}) or {}
@@ -124,6 +132,16 @@ def build_llm(config: dict[str, Any] | None = None) -> ChatLLM:
     return ChatLLM(base_url="", model="")
 
 
+def build_asr(config: dict[str, Any] | None = None) -> ASRProvider:
+    cfg = config if config is not None else load_config()
+    section = cfg.get("asr", {}) or {}
+    for name in _provider_names(section):
+        provider = _make_asr(name, section)
+        if provider.available():
+            return provider
+    return NullASR()
+
+
 def build_i2v(config: dict[str, Any] | None = None) -> I2VProvider:
     cfg = config if config is not None else load_config()
     section = cfg.get("i2v", {}) or {}
@@ -157,5 +175,6 @@ def status(config: dict[str, Any] | None = None) -> list[ProviderStatus]:
         _probe_status("ocr", cfg.get("ocr", {}) or {}, _make_ocr),
         _probe_status("vlm", cfg.get("vlm", {}) or {}, _make_vlm),
         _probe_status("llm", cfg.get("llm", {}) or {}, _make_llm),
+        _probe_status("asr", cfg.get("asr", {}) or {}, _make_asr),
         _probe_status("i2v", cfg.get("i2v", {}) or {}, _make_i2v),
     ]
