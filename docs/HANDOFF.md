@@ -95,7 +95,7 @@ guide = build_guide_answer(package, package_root, question, language, current_pa
 
 ## 1. 当前状态
 
-最新提交：`d89636f`（分支 `ceobe-backspace`，**尚未推送**）。
+最新提交：`931b97e`（分支 `ceobe-backspace`，**已推送**）。
 上一次提交 `4187dcf` 之前的状态见 `git log`。
 
 ### 1.1 已完成并已提交
