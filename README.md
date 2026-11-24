@@ -18,10 +18,12 @@
 ## 当前状态
 
 - 六本 PDF 共 120 页已入库；六份脚本解析成 300 个 QueryItem / 328 个动作。
-- RapidOCR（免费本地）已跑通：搜索/高亮目标只剩 `zh-02` 的“小刺猬”未命中（插画文字，需 VLM/人工补）。
-- OCR 会去掉与 PDF 文本重叠的结果，并按 `config/models.yaml` 的 `watermark_phrases` 过滤水印碎片；重跑是幂等的。
-- VLM 页叙事适配已接好，默认 `null`；配好本地/远程视觉模型后运行 `python -m pipeline narrative --all`。
-- 场景、QA 卡、点击热区还没生成；`derived/coverage_report.json` 里是待办清单。
+- 文本层：RapidOCR（免费本地）+ 本地视觉模型（LM Studio 的 `qwen3.5-9b`）出页级叙述、实体、可见文字。
+- 生成链路：`StoryPlan`（角色/梗概/逐页节拍）→ `ScenePlan`（页内时间、字幕、seek 别名、视频提示词）→ 检索索引 → 页动画视频 + 配音重定时 + 字幕烧录。
+- 知识层：按官方脚本的每条 qa 问题生成 `QaCard`（三档答案 + 证据 + 视频锚点），运行时直接消费。
+- 交互：`POST /api/interact` 对 control / search / highlight / seek / qa 返回真实结果与证据；缺能力时明确降级，不伪造成功。
+- 评测：`python -m pipeline eval --all` 回放 328 个动作，按 kind 分桶给出正确率、证据率与 p50/p95。
+- 还没做完：点击热区（click）、语音识别（ASR）、多 Agent 编排、评测面板与说明书。
 
 ## 快速开始
 
@@ -35,11 +37,25 @@ python -m pipeline understand --all
 # VLM 页叙事（需要先在 config/models.yaml 配一个 VLM；默认 null 跳过）
 python -m pipeline narrative --all
 
-# 看当前 OCR/VLM 用的是谁
+# 故事与分镜（需要文本模型）
+python -m pipeline story --all
+python -m pipeline scene --all
+
+# 检索索引 + 知识层（QA 卡）+ 视频
+python -m pipeline index --all
+python -m pipeline knowledge --all --use-llm
+python -m pipeline video --all
+python -m pipeline final --all
+
+# 看当前 OCR/VLM/LLM/I2V 用的是谁
 python -m pipeline models
 
 # 生成一页可视化审核图（PDF block / OCR / 目标短语）
 python -m pipeline review --book zh-01 --page 6 --target "我又不是故意的"
+
+# 回放评测（需要先起服务）
+python -m uvicorn backend.app.c_demo:app --port 8000
+python -m pipeline eval --all
 
 # 只跑某一步
 python -m pipeline ingest --all
@@ -71,24 +87,24 @@ pip install -r requirements-ocr.txt   # 可选，免费本地 OCR
 ## 目录
 
 ```text
-backend/       运行时、API、任务、媒体、适配器（待做）
-pipeline/      内容工厂、阶段编排、生成
-config/        models.yaml：OCR/VLM/LLM 等提供方配置
+backend/       运行时、API、任务、媒体、适配器、交互协议
+pipeline/      内容工厂、阶段编排、生成、评测回放
+config/        models.yaml：OCR/VLM/LLM/I2V 等提供方配置
 prompts/       版本化提示词（待做）
 contracts/     数据契约模型与校验
-frontend/      阅读器、审核页、评测面板（待做）
-evaluation/    评测脚本、结果、演示素材（待做）
+frontend/      阅读器（C 主责，初版已可运行）
+evaluation/    评测面板、演示素材（C 主责）
 data/books/    本地单书数据包（不入 Git）
+runs/          评测回放结果（不入 Git）
 docs/          架构与契约
 ```
 
 ## 下一步
 
-1. VLM 叙事：本机跑一个 Ollama/LM Studio 的视觉模型，或用免费 API；改 `config/models.yaml` 即可，不改代码。
-2. StoryPlan / ScenePlan：角色、逐页旁白、scene 时间轴、字幕、aliases、物体框。
-3. 视频/配音/合成：页动画 + 重点页 I2V + TTS。
-4. 知识层：PageFact / QaCard / Alias，人工审核与覆盖。
-5. 在线交互：`/api/interact`、播放器、评测回放。
+1. 点击热区：VLM 定位物体并给出 bbox，解 28 个 click 动作。
+2. 语音识别：ASR 适配器接入 `/api/interact/audio`，打通"孩子说话→系统回答"。
+3. 多 Agent 编排：把现有阶段做成可编排、可重试、可追溯的任务链。
+4. 评测面板与说明书：把 `runs/` 的回放结果做成可展示的报告。
 
 ## 赛题
 
