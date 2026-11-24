@@ -24,6 +24,7 @@ from .coverage import analyze_all
 from .eval import run_eval
 from .ingest import ingest_book, ingest_pdf
 from .index import build_index
+from .hotspots import build_hotspots
 from .knowledge import build_knowledge
 from .manual import auto_narrative_records, seed_narrative_corrections
 from .models import build_llm, build_ocr, build_vlm, config_path, status as provider_status
@@ -343,6 +344,28 @@ def cmd_knowledge(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_hotspots(args: argparse.Namespace) -> int:
+    specs = _select(args)
+    if not specs:
+        raise SystemExit("select --all or --book")
+    vlm = build_vlm() if args.use_vlm else None
+    if args.use_vlm:
+        print(f"vlm provider: {vlm.name} model={getattr(vlm, 'model', '')}")
+        if not vlm.available():
+            print("warning: no VLM available; only text layer hotspots are created")
+            vlm = None
+    for spec in specs:
+        report = build_hotspots(spec, vlm=vlm)
+        print(
+            f"  {spec.book_id}: targets={report['targets']} hotspots={report['hotspots']} "
+            f"(text={report['from_text']} vlm={report['from_model']} "
+            f"unresolved={len(report['unresolved'])})"
+        )
+        if report["unresolved"]:
+            print(f"    待人工/VLM: {', '.join(report['unresolved'][:8])}")
+    return 0
+
+
 def cmd_models(_args: argparse.Namespace) -> int:
     print(f"config: {config_path()}")
     print(f"ocr provider: {build_ocr().name}")
@@ -462,6 +485,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="let the model pick the page and write the answers",
     )
     p_knowledge.set_defaults(func=cmd_knowledge)
+
+    p_hotspots = sub.add_parser("hotspots", help="create the clickable hotspots of a book")
+    add_selection(p_hotspots)
+    p_hotspots.add_argument(
+        "--use-vlm",
+        action="store_true",
+        help="let the vision model locate objects that are only in the picture",
+    )
+    p_hotspots.set_defaults(func=cmd_hotspots)
 
     p_models = sub.add_parser("models", help="show configured OCR/VLM providers")
     p_models.set_defaults(func=cmd_models)
