@@ -14,11 +14,13 @@ from typing import Any
 import yaml
 
 from .base import OCRProvider, VLMProvider
+from .i2v import I2VProvider, NullI2V
 from .llm import ChatLLM
 from .null import NullOCR, NullVLM
 from .ollama_provider import OllamaProvider
 from .openai_compat import OpenAICompatibleVLM
 from .rapidocr_provider import RapidOCRProvider
+from .volcengine_i2v import VolcengineI2VProvider
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = ROOT / "config" / "models.yaml"
@@ -83,6 +85,15 @@ def _make_llm(name: str, section: dict[str, Any]) -> ChatLLM:
     return ChatLLM(base_url="", model="")
 
 
+def _make_i2v(name: str, section: dict[str, Any]) -> I2VProvider:
+    if name == "volcengine_ark":
+        opts = section.get("volcengine_ark", {}) or {}
+        return VolcengineI2VProvider(**opts)
+    if name == "null":
+        return NullI2V()
+    return NullI2V(f"unknown I2V provider: {name}")
+
+
 def build_ocr(config: dict[str, Any] | None = None) -> OCRProvider:
     cfg = config if config is not None else load_config()
     section = cfg.get("ocr", {}) or {}
@@ -113,6 +124,15 @@ def build_llm(config: dict[str, Any] | None = None) -> ChatLLM:
     return ChatLLM(base_url="", model="")
 
 
+def build_i2v(config: dict[str, Any] | None = None) -> I2VProvider:
+    cfg = config if config is not None else load_config()
+    section = cfg.get("i2v", {}) or {}
+    for name in _provider_names(section):
+        provider = _make_i2v(name, section)
+        if provider.available():
+            return provider
+    return NullI2V()
+
 def _probe_status(
     kind: str,
     section: dict[str, Any],
@@ -137,4 +157,5 @@ def status(config: dict[str, Any] | None = None) -> list[ProviderStatus]:
         _probe_status("ocr", cfg.get("ocr", {}) or {}, _make_ocr),
         _probe_status("vlm", cfg.get("vlm", {}) or {}, _make_vlm),
         _probe_status("llm", cfg.get("llm", {}) or {}, _make_llm),
+        _probe_status("i2v", cfg.get("i2v", {}) or {}, _make_i2v),
     ]

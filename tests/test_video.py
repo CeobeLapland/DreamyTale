@@ -8,6 +8,33 @@ from pathlib import Path
 
 from pipeline.video import _motion, render_scene_animation
 from pipeline.tts import edge_tts_available, _voice_for
+from pipeline.video import _frame_size_for_book
+
+
+class FrameSizeTests(unittest.TestCase):
+    def test_landscape_book(self) -> None:
+        book = {
+            "pages": [
+                {"width_px": 2608, "height_px": 1304},
+            ]
+        }
+        self.assertEqual((1280, 720), _frame_size_for_book(book))
+
+    def test_portrait_book(self) -> None:
+        book = {
+            "pages": [
+                {"width_px": 828, "height_px": 1225},
+            ]
+        }
+        self.assertEqual((720, 1280), _frame_size_for_book(book))
+
+    def test_square_book(self) -> None:
+        book = {
+            "pages": [
+                {"width_px": 1304, "height_px": 1304},
+            ]
+        }
+        self.assertEqual((1024, 1024), _frame_size_for_book(book))
 
 
 class MotionTests(unittest.TestCase):

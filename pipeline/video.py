@@ -34,6 +34,8 @@ from contracts.models import (
 )
 
 from .config import DATA, BookSpec
+from .models import build_i2v, load_config
+from .models.i2v import I2VRequest
 
 VIDEO_DIR = Path("derived") / "video"
 SCENE_DIR = Path("derived") / "scene"
@@ -41,6 +43,26 @@ THUMB_DIR = Path("derived") / "video" / "thumbs"
 FPS = 12
 FRAME_SIZE = (1280, 720)
 PUSH_IN = 0.08
+
+def _frame_size_for_book(book: dict[str, Any]) -> tuple[int, int]:
+    ratios = []
+    for page in book.get("pages", []):
+        width = int(page.get("width_px") or 0)
+        height = int(page.get("height_px") or 0)
+        if width > 0 and height > 0:
+            ratios.append(width / height)
+
+    if not ratios:
+        return FRAME_SIZE
+
+    ratios.sort()
+    median_ratio = ratios[len(ratios) // 2]
+
+    if median_ratio > 1.05:
+        return 1280, 720
+    if median_ratio < 0.95:
+        return 720, 1280
+    return 1024, 1024
 
 
 def _ascii_temp_root() -> Path:
@@ -208,9 +230,13 @@ def render_scene_animation(
     return out_path
 
 
-def _thumbnail(image_path: Path, out_path: Path) -> Path:
+def _thumbnail(
+    image_path: Path,
+    out_path: Path,
+    size: tuple[int, int] = FRAME_SIZE,
+) -> Path:
     page = _imread_unicode(image_path)
-    canvas, _, _ = _letterbox(page, FRAME_SIZE)
+    canvas, _, _ = _letterbox(page, size)
     _imwrite_unicode(out_path, canvas)
     return out_path
 
@@ -219,8 +245,9 @@ def compose_book(
     spec: BookSpec,
     plan: dict[str, Any],
     segments: list[dict[str, Any]],
+    size: tuple[int, int] = FRAME_SIZE,
 ) -> Path:
-    """Concatenate scene clips into one book video."""
+    """Concatenate clips using scene durations and source fps."""
     import cv2
 
     book_path = DATA / spec.book_id / VIDEO_DIR / "book.mp4"
@@ -230,7 +257,7 @@ def compose_book(
             str(temporary_book),
             cv2.VideoWriter_fourcc(*"mp4v"),
             FPS,
-            FRAME_SIZE,
+            size,
         )
         if not writer.isOpened():
             raise RuntimeError(f"cannot open video writer for {book_path}")
@@ -238,24 +265,51 @@ def compose_book(
         try:
             for segment in segments:
                 clip = DATA / spec.book_id / segment["path"]
+                target_frames = max(
+                    1,
+                    round(
+                        (int(segment["end_ms"]) - int(segment["start_ms"]))
+                        / 1000
+                        * FPS
+                    ),
+                )
 
                 with _ascii_video_input(clip) as temporary_clip:
                     capture = cv2.VideoCapture(str(temporary_clip))
+                    if not capture.isOpened():
+                        raise RuntimeError(f"cannot open clip: {clip}")
+
+                    source_fps = capture.get(cv2.CAP_PROP_FPS) or FPS
+                    source_index = 0
+                    last_frame = None
+
                     try:
-                        while True:
-                            ok, frame = capture.read()
-                            if not ok:
-                                break
-                            if (
-                                frame.shape[1] != FRAME_SIZE[0]
-                                or frame.shape[0] != FRAME_SIZE[1]
-                            ):
-                                frame = cv2.resize(
-                                    frame,
-                                    FRAME_SIZE,
-                                    interpolation=cv2.INTER_LINEAR,
+                        for target_index in range(target_frames):
+                            desired_source_index = int(
+                                target_index / FPS * source_fps
+                            )
+                            while source_index <= desired_source_index:
+                                ok, frame = capture.read()
+                                if not ok:
+                                    break
+                                last_frame = frame
+                                source_index += 1
+
+                            if last_frame is None:
+                                raise RuntimeError(
+                                    f"clip has no readable frames: {clip}"
                                 )
-                            writer.write(frame)
+
+                            output_frame = last_frame
+                            if (
+                                output_frame.shape[1] != size[0]
+                                or output_frame.shape[0] != size[1]
+                            ):
+                                output_frame, _, _ = _letterbox(
+                                    output_frame,
+                                    size,
+                                )
+                            writer.write(output_frame)
                     finally:
                         capture.release()
         finally:
@@ -275,7 +329,22 @@ def run_video(spec: BookSpec, limit_pages: int | None = None) -> dict[str, Any]:
     if not scene_path.exists():
         raise FileNotFoundError(scene_path)
     book = json.loads(book_path.read_text(encoding="utf-8"))
+    frame_size = _frame_size_for_book(book)
     plan = json.loads(scene_path.read_text(encoding="utf-8"))
+    config = load_config()
+    i2v_config = config.get("i2v", {}) or {}
+    i2v_provider = build_i2v(config)
+    i2v_available = i2v_provider.available()
+    i2v_scene_ids = {
+        str(item)
+        for item in i2v_config.get("scene_ids", []) or []
+    }
+    i2v_max_scenes = max(
+        0,
+        int(i2v_config.get("max_scenes") or 0),
+    )
+    i2v_used = 0
+    used_video_models: set[str] = set()
 
     started = time.perf_counter()
     video_dir = DATA / spec.book_id / VIDEO_DIR
@@ -301,18 +370,72 @@ def run_video(spec: BookSpec, limit_pages: int | None = None) -> dict[str, Any]:
         image_path = DATA / spec.book_id / page["image_path"]
         out_path = video_dir / f"{scene_id}.mp4"
         duration_ms = int(scene.get("end_ms") or 0) - int(scene.get("start_ms") or 0)
+        use_i2v = i2v_available and (
+            scene_id in i2v_scene_ids
+            if i2v_scene_ids
+            else i2v_used < i2v_max_scenes
+        )
+        model_name = "page-animation-v1"
+        status = GenerationStatus.ok
+        fallback_reason = None
+        i2v_failed = False
+
         try:
-            render_scene_animation(
+            if use_i2v:
+                try:
+                    i2v_provider.generate(
+                        I2VRequest(
+                            image_path=image_path,
+                            prompt=str(
+                                scene.get("prompt")
+                                or scene.get("caption")
+                                or "人物轻微动作，保持原书风格"
+                            ),
+                            negative_prompt=str(
+                                scene.get("negative_prompt")
+                                or "角色变形，额外肢体，文字变化"
+                            ),
+                            duration_ms=max(1000, duration_ms),
+                            seed=int(scene.get("seed") or 0),
+                            width=frame_size[0],
+                            height=frame_size[1],
+                            fps=FPS,
+                        ),
+                        out_path,
+                    )
+                    model_name = i2v_provider.name
+                    i2v_used += 1
+                except Exception as exc:  # noqa: BLE001
+                    i2v_failed = True
+                    status = GenerationStatus.fallback
+                    fallback_reason = (
+                        f"I2V failed: {type(exc).__name__}: {exc}"
+                    )
+
+            if model_name == "page-animation-v1":
+                render_scene_animation(
+                    image_path,
+                    out_path,
+                    duration_ms=max(1000, duration_ms),
+                    camera=str(scene.get("camera") or ""),
+                    size=frame_size,
+                )
+
+            thumb_path = _thumbnail(
                 image_path,
-                out_path,
-                duration_ms=max(1000, duration_ms),
-                camera=str(scene.get("camera") or ""),
+                thumb_dir / f"{scene_id}.jpg",
+                size=frame_size,
             )
-            thumb_path = _thumbnail(image_path, thumb_dir / f"{scene_id}.jpg")
-            status = GenerationStatus.ok
-            fallback_reason = None
+            used_video_models.add(model_name)
+            if i2v_failed:
+                fallbacks += 1
         except Exception as exc:  # noqa: BLE001
-            errors.append({"scene_id": scene_id, "error": f"{type(exc).__name__}: {exc}"})
+            errors.append(
+                {
+                    "scene_id": scene_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
             continue
 
         segments.append(
@@ -332,12 +455,16 @@ def run_video(spec: BookSpec, limit_pages: int | None = None) -> dict[str, Any]:
                 page_index=page_index,
                 path=str(out_path.relative_to(DATA / spec.book_id)).replace("\\", "/"),
                 duration_ms=max(1, duration_ms),
-                width=FRAME_SIZE[0],
-                height=FRAME_SIZE[1],
+                width=frame_size[0],
+                height=frame_size[1],
                 fps=FPS,
                 first_frame_path=str(scene.get("keyframe_path") or ""),
-                model="page-animation-v1",
-                params={"camera": str(scene.get("camera") or ""), "motion": _motion(str(scene.get("camera") or ""))},
+                model=model_name,
+                params={
+                    "camera": str(scene.get("camera") or ""),
+                    "motion": _motion(str(scene.get("camera") or "")),
+                    "fallback_reason": fallback_reason,
+                },
                 seed=int(scene.get("seed") or 0),
                 style_score=scene.get("style_score"),
                 status=status,
@@ -346,7 +473,7 @@ def run_video(spec: BookSpec, limit_pages: int | None = None) -> dict[str, Any]:
             )
         )
 
-    book_video = compose_book(spec, plan, segments) if segments else None
+    book_video = compose_book(spec, plan, segments, size=frame_size) if segments else None
 
     # Page level absolute timeline, derived from the scene clips.
     pages_out: list[GenerationPage] = []
@@ -374,6 +501,9 @@ def run_video(spec: BookSpec, limit_pages: int | None = None) -> dict[str, Any]:
             for item in sorted(audio_dir.glob("*.mp3"))
         ]
 
+    if not used_video_models:
+        used_video_models.add("page-animation-v1")
+
     result = BookGenerationResult(
         book_id=spec.book_id,
         generation_version=1,
@@ -394,7 +524,7 @@ def run_video(spec: BookSpec, limit_pages: int | None = None) -> dict[str, Any]:
             qa_cards=0,
             duration_ms=cursor,
         ),
-        model_versions={"video": "page-animation-v1"},
+        model_versions={"video": ",".join(sorted(used_video_models))},
         prompt_versions={"story": "story-v1", "scene": "scene-v1"},
         created_at=_now(),
     )
@@ -427,7 +557,7 @@ def run_video(spec: BookSpec, limit_pages: int | None = None) -> dict[str, Any]:
                 model="page-animation-v1",
                 model_version="v1",
                 prompt_version="scene-v1",
-                params={"fps": FPS, "size": list(FRAME_SIZE)},
+                params={"fps": FPS, "size": list(frame_size)},
                 seed=None,
                 started_at=_now(),
                 duration_ms=int((time.perf_counter() - started) * 1000),
