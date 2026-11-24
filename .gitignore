@@ -24,6 +24,7 @@ __pycache__/
 node_modules/
 .env
 .env.local
+.trae-html-share-packages/
 
 # ---- 系统 ----
 .DS_Store
