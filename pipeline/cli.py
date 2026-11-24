@@ -21,6 +21,7 @@ from contracts.validate import main as validate_main
 
 from .config import BOOKS, DATA, DEFAULT_DPI, find_book
 from .coverage import analyze_all
+from .eval import run_eval
 from .ingest import ingest_book, ingest_pdf
 from .index import build_index
 from .manual import auto_narrative_records, seed_narrative_corrections
@@ -309,6 +310,22 @@ def cmd_tts(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_eval(args: argparse.Namespace) -> int:
+    specs = _select(args)
+    if not specs:
+        raise SystemExit("select --all or --book")
+    report = run_eval(specs, base_url=args.base_url, limit=args.limit)
+    metrics = report["metrics"]
+    print(f"run: {report['run']['run_id']}  cases: {report['results']}")
+    print(f"  overall ok: {metrics['ok']}/{metrics['total']}  fallback_rate={metrics['fallback_rate']}")
+    print(f"  by kind: {metrics['by_kind']}")
+    print(f"  qa: {metrics['qa_correct']}/{metrics['qa_total']}  evidence_rate={metrics['evidence_rate']}")
+    print(f"  latency p50={metrics['p50_ms']}ms p95={metrics['p95_ms']}ms")
+    print(f"  mandatory ok: {metrics['mandatory_ok']}/{metrics['mandatory_total']}")
+    print(f"  results: {report['run']['results_path']}")
+    return 0
+
+
 def cmd_models(_args: argparse.Namespace) -> int:
     print(f"config: {config_path()}")
     print(f"ocr provider: {build_ocr().name}")
@@ -413,6 +430,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_tts = sub.add_parser("tts", help="narration audio via Edge TTS (optional)")
     add_selection(p_tts)
     p_tts.set_defaults(func=cmd_tts)
+
+    p_eval = sub.add_parser("eval", help="replay the query set against the running service")
+    add_selection(p_eval)
+    p_eval.add_argument("--base-url", default="http://127.0.0.1:8000")
+    p_eval.add_argument("--limit", type=int, help="only replay the first N actions")
+    p_eval.set_defaults(func=cmd_eval)
 
     p_models = sub.add_parser("models", help="show configured OCR/VLM providers")
     p_models.set_defaults(func=cmd_models)

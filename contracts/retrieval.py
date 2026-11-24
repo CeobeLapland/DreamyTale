@@ -71,6 +71,100 @@ def longest_common_substring(left: str, right: str) -> int:
     return best
 
 
+def overlap_score(core: str, searchable: str) -> int:
+    """How much of the query is covered by the candidate text.
+
+    A greedy longest-match scan: every position takes the longest phrase (4, 3
+    then 2 characters) that the candidate contains, and those characters are
+    consumed. Counting every match instead of only the longest one is what
+    separates "搭了九块积木" (九块 + 积木) from a scene that merely says "积木".
+    """
+    if not core or not searchable:
+        return 0
+    score = 0
+    index = 0
+    while index < len(core):
+        for size in (4, 3, 2):
+            if index + size > len(core):
+                continue
+            if core[index : index + size] in searchable:
+                score += size
+                index += size
+                break
+        else:
+            index += 1
+    return score
+
+
+INSTRUCTION_PREFIXES = (
+    "请帮我",
+    "帮我",
+    "请",
+    "查找一下",
+    "查找",
+    "找一下",
+    "搜索一下",
+    "搜索",
+    "高亮文字",
+    "高亮",
+    "显示",
+    "找到",
+)
+
+INSTRUCTION_SUFFIXES = (
+    "的画面",
+    "这个画面",
+    "那部分",
+    "这个部分",
+    "片段",
+    "画面",
+    "场景",
+    "视频",
+    "部分",
+    "这一段",
+    "这句",
+    "这句话",
+    "文字",
+)
+
+_QUOTE_PAIRS = (("“", "”"), ("「", "」"), ("『", "』"), ('"', '"'), ("'", "'"))
+
+
+def extract_target(text: str) -> str:
+    """The thing the user wants to find, without the instruction around it.
+
+    "高亮文字“bats”" -> "bats"; "找到搭了九块积木的画面" -> "搭了九块积木".
+    Without this the service searches for the whole sentence and finds
+    nothing, which looks like a missing feature instead of a parsing gap.
+    """
+    stripped = (text or "").strip()
+    if not stripped:
+        return ""
+    for opener, closer in _QUOTE_PAIRS:
+        if opener == closer:
+            if stripped.count(opener) >= 2:
+                inner = stripped.split(opener)[1]
+                if inner.strip():
+                    return inner.strip()
+            continue
+        start = stripped.find(opener)
+        if start != -1:
+            end = stripped.find(closer, start + 1)
+            if end != -1:
+                inner = stripped[start + 1 : end].strip()
+                if inner:
+                    return inner
+    for prefix in INSTRUCTION_PREFIXES:
+        if stripped.startswith(prefix):
+            stripped = stripped[len(prefix) :].strip()
+            break
+    for suffix in INSTRUCTION_SUFFIXES:
+        if stripped.endswith(suffix):
+            stripped = stripped[: -len(suffix)].strip()
+            break
+    return stripped.strip("“”\"'‘’ 　")
+
+
 def search_index(index: dict[str, Any], query: str) -> list[dict[str, Any]]:
     """Entries whose text contains the query."""
     needle = normalize(query)
@@ -96,21 +190,26 @@ def find_scene(index: dict[str, Any], query: str) -> dict[str, Any] | None:
     best: dict[str, Any] | None = None
     best_score = 0
     for scene in index.get("scenes", []) or []:
-        score = 0
+        searchable = normalize(str(scene.get("text") or scene.get("caption") or ""))
+        # How much of the query the scene covers decides; a short alias that
+        # happens to appear ("积木") must not outrank a scene that covers the
+        # whole phrase ("搭了九块积木").
+        primary = overlap_score(core, searchable) if searchable else 0
+        tiebreak = 0
         for alias in scene.get("aliases") or []:
             alias_text = normalize(str(alias))
             if alias_text and (alias_text == needle or alias_text in needle or needle in alias_text):
-                score = max(score, len(alias_text) + 2)
+                tiebreak = max(tiebreak, len(alias_text))
         for entity in scene.get("entities") or []:
             entity_text = normalize(str(entity))
             if entity_text and (entity_text == needle or needle in entity_text):
-                score = max(score, len(entity_text) + 1)
-        searchable = normalize(str(scene.get("text") or scene.get("caption") or ""))
-        if searchable:
-            score = max(score, longest_common_substring(core, searchable))
+                tiebreak = max(tiebreak, len(entity_text))
+        if not primary:
+            primary = longest_common_substring(core, searchable)
+        score = primary * 10 + min(tiebreak, 9)
         if score > best_score:
             best_score = score
             best = scene
-    if best is not None and best_score >= 2:
+    if best is not None and best_score >= 20:
         return best
     return None

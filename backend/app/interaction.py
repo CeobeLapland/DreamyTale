@@ -12,6 +12,7 @@ import time
 import uuid
 from pathlib import Path
 
+from contracts.retrieval import extract_target as _extract_target
 from contracts.retrieval import find_scene as _find_scene
 from contracts.retrieval import search_index as _search_index
 
@@ -230,7 +231,9 @@ def handle_interaction(
         )
 
     if kind in {InteractionKind.search, InteractionKind.highlight}:
-        target = text
+        # The player sends the whole utterance ("高亮文字“bats”"); the service
+        # needs the target itself, otherwise it searches for the sentence.
+        target = _extract_target(text) or text
         entries = _search_index(_load_index(package_root, "search_index.json"), target)
         if entries:
             evidence = [
