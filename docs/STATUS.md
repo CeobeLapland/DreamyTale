@@ -38,22 +38,24 @@
 - **C（体验/评测）**：`frontend/` 阅读器初版——书架、上传、任务轮询、视频与逐页播放、字幕（读 `Scene.subtitles`）、
   翻页、文字提问、录音与音频上传、回答音频、浏览器朗读降级、点击识别、结果导出；附 A/B 待办清单。
 - **B（内容工厂，本文档作者）**：`contracts/` v2 契约全量模型 + `contracts/retrieval.py` 共用检索；
-  `pipeline/` 的 ingest / understanding / narrative / story / scene / index / knowledge / video / tts / eval；
+  `pipeline/` 的 ingest / understanding / narrative / story / scene / index / knowledge / hotspots / video / tts / eval；
   把 `docs/DATA_CONTRACT.md` 变成唯一契约，`backend/` 迁到 v2。
 
 ### 评测数字（`python -m pipeline eval --all`，328 个动作打真实服务）
 
 ```text
-overall        206/328  62.8%
+overall        218/328  66.5%
 control        65/65    100%
 search         12/12    100%
 highlight      25/25    100%
 qa             76/117    65%   （答得上且有证据；语义对错待人工抽检）
 seek           26/79     33%
-click          0/28       0%   （还没有热点）
-latency        p50=0ms  p95=3ms
-必选动作        50/91
+click          12/28     43%   （文字层能定位的已做，纯视觉物体要开 VLM）
+latency        p50=0ms  p95=4ms
+必选动作        57/91
 ```
+
+qa 与 click 还能再涨：两者都需要本地模型开着（`--use-llm` / `--use-vlm`）。
 
 ### 覆盖检查（OCR + VLM + scene 之后）
 
@@ -123,16 +125,18 @@ PDF → pages + book.json(v2)            pipeline ingest
 
 ## 7. 下一步
 
-1. **点击热区**（解 28 个 click）：VLM 在图里定位对象并返回 bbox，按降采样比例还原到原图坐标；人工抽检。
+1. **开模型补齐 qa 与 click**：`python -m pipeline knowledge --all --use-llm`（117 条问题全覆盖，约 12 分钟）
+   和 `python -m pipeline hotspots --all --use-vlm`（纯视觉物体定位）。现在是 74 张卡、12 个热点。
 2. **ASR**：A 接适配器到 `/api/interact/audio`，B 供模型与提示词；打通"孩子说话→系统回答"。
 3. **多 Agent 编排**：把现有阶段做成可编排、可重试、可追溯的任务链（阶段产物 + trace）。
 4. **说明书（≤20 页）+ 评测面板**：把 `runs/` 的回放结果做成可展示的报告。
 
 ## 8. 什么时候需要人
 
-- **已做**：主干后端可运行、契约统一到 v2、六本全链路跑通并出片、前端初版可运行、评测回放可用。
-- **现在**：开一下 LM Studio（跑 `python -m pipeline knowledge --all --use-llm`，qa 从 74 张卡到 117 条全覆盖，约 12 分钟）。
+- **已做**：主干后端可运行、契约统一到 v2、六本全链路跑通并出片、前端初版可运行、
+  评测回放可用（218/328 = 66.5%）、QA 卡与热点生成器就位、来源清单写好。
+- **现在**：开一下 LM Studio（qa 全覆盖 + 视觉热点定位，约 15 分钟计算量）。
 - **现在**：ComfyUI 里下视频模型（LTX-Video 快，Wan2.1 I2V 质量好）；或给火山方舟 `ARK_API_KEY`（要钱、要写进材料的调用范围）。
 - **现在**：本机装 `edge-tts`（之前装失败），否则只有字幕没有配音。
 - **后面**：QA 卡语义对错的人工抽检；说明书与演示视频。
-- **代码上**：暂时不需要你动手，我继续做热点定位。
+- **代码上**：暂时不需要你动手，我继续做多 Agent 编排与说明书素材。
