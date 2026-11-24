@@ -38,6 +38,15 @@ LOCATE_SCHEMA: dict[str, Any] = {
     "required": ["bbox_px", "found"],
 }
 
+PAGE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "page_index": {"type": "integer"},
+        "found": {"type": "boolean"},
+    },
+    "required": ["page_index", "found"],
+}
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -82,6 +91,55 @@ def _candidate_page(target: str, pages: list[dict[str, Any]]) -> dict[str, Any] 
     return best
 
 
+def _candidate_page_with_llm(
+    llm: Any,
+    target: str,
+    pages: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Cross-lingual page routing.
+
+    Chinese click targets meet English page narratives ("电影海报" vs "movie
+    poster"), so lexical overlap is zero. The text model reads the per-page
+    descriptions and picks the page; the VLM still decides the box.
+    """
+    if llm is None or not llm.available():
+        return None
+    rows: list[str] = []
+    for page in pages:
+        description = " ".join(
+            part
+            for part in (
+                str(page.get("text") or "").strip(),
+                str(page.get("narrative") or "").strip(),
+                " ".join(str(item) for item in page.get("entities") or []),
+            )
+            if part
+        )
+        if description:
+            rows.append(f"第 {page['index']} 页：{description[:260]}")
+    if not rows:
+        return None
+    prompt = (
+        f"用户想点击绘本里的“{target}”。下面是每一页的文字和画面描述。\n"
+        "请判断这个对象最可能出现在第几页；只依据描述，不要猜。\n\n"
+        + "\n".join(rows)
+        + "\n\n返回 JSON：{\"page_index\": 5, \"found\": true}。"
+        "找不到就返回 {\"page_index\": 0, \"found\": false}。"
+    )
+    try:
+        result = llm.chat(prompt, json_schema=PAGE_SCHEMA)
+    except Exception:  # noqa: BLE001 - hotspot creation degrades, not crashes
+        return None
+    data = result.data if isinstance(result.data, dict) else None
+    if not data or not data.get("found"):
+        return None
+    try:
+        page_index = int(data.get("page_index") or 0)
+    except (TypeError, ValueError):
+        return None
+    return next((page for page in pages if int(page["index"]) == page_index), None)
+
+
 def _locate_with_vlm(
     vlm: Any,
     target: str,
@@ -119,7 +177,12 @@ def _locate_with_vlm(
     return x1, y1, x2, y2
 
 
-def build_hotspots(spec: BookSpec, vlm: Any = None, max_side: int = 1024) -> dict[str, Any]:
+def build_hotspots(
+    spec: BookSpec,
+    vlm: Any = None,
+    llm: Any = None,
+    max_side: int = 1024,
+) -> dict[str, Any]:
     """Create the hotspots the query set asks for and store them in the book."""
     book_path = DATA / spec.book_id / "book.json"
     query_sets = sorted((DATA / spec.book_id / "query_sets").glob("*.json"))
@@ -161,6 +224,7 @@ def build_hotspots(spec: BookSpec, vlm: Any = None, max_side: int = 1024) -> dic
     by_page: dict[int, list[Hotspot]] = {}
     from_text = 0
     from_model = 0
+    from_llm_pages = 0
     unresolved: list[str] = []
 
     for target, number in targets:
@@ -169,9 +233,40 @@ def build_hotspots(spec: BookSpec, vlm: Any = None, max_side: int = 1024) -> dic
         bbox: list[int] = []
         if hit:
             page_index, bbox = hit
-            from_text += 1
+            duplicate = any(
+                item.page_index == page_index
+                and tuple(item.bbox_px) == tuple(bbox)
+                for item in by_page.get(page_index, [])
+            )
+            if duplicate and vlm is not None:
+                # Two targets on the same text line ("大象 / 天鹅") produce the
+                # same box; ask the VLM for the object itself so the boxes
+                # stop being identical.
+                page_model = next(
+                    item for item in book.pages if item.index == page_index
+                )
+                image_path = DATA / spec.book_id / page_model.image_path
+                located = _locate_with_vlm(
+                    vlm,
+                    target,
+                    image_path,
+                    page_model.width_px,
+                    page_model.height_px,
+                    getattr(vlm, "max_side", max_side),
+                )
+                if located:
+                    bbox = list(located)
+                    from_model += 1
+                else:
+                    from_text += 1
+            else:
+                from_text += 1
         else:
             page = _candidate_page(target, pages)
+            if page is None:
+                page = _candidate_page_with_llm(llm, target, pages)
+                if page is not None:
+                    from_llm_pages += 1
             if page is None:
                 unresolved.append(target)
                 continue
@@ -234,6 +329,7 @@ def build_hotspots(spec: BookSpec, vlm: Any = None, max_side: int = 1024) -> dic
         "targets": len(targets),
         "from_text": from_text,
         "from_model": from_model,
+        "from_llm_pages": from_llm_pages,
         "unresolved": unresolved,
         "hotspots": sum(len(items) for items in by_page.values()),
         "seconds": round(time.perf_counter() - started, 2),

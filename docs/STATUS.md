@@ -20,9 +20,9 @@
 | --- | --- | --- | --- |
 | 内容理解 | **跑通** | `pipeline/understanding.py`（OCR）+ `pipeline/narrative.py`（本地 VLM）出页级叙述、实体、可见文字 | 英文书的 visible_text 靠 VLM，质量待人工抽检 |
 | 互动视频生成 | **跑通** | `pipeline/story.py`→`ScenePlan`→页动画→`final.py` 字幕+H.264+AAC；edge-tts 旁白与 retime 已生效；六本 `final.mp4` 均为 H.264+AAC（1:54–3:27） | 真正的文生视频（I2V 要火山方舟密钥） |
-| 实时交互 | **六类真结果** | `POST /api/interact`：control / search / highlight / seek / qa / click 都返回真实结果与证据；ASR 走本地 faster-whisper；无卡问题走运行时 LLM 或 guide | 纯视觉物体定位、低置信 ASR 复述确认 |
+| 实时交互 | **六类真结果** | `POST /api/interact`：control / search / highlight / seek / qa / click 都返回真实结果与证据；ASR 走本地 faster-whisper；无卡问题走运行时 LLM 或 guide；官方 click 28/28 | 脚本外物体、低置信 ASR 复述确认 |
 | 多 Agent | **跑通** | `pipeline/orchestrator.py` 14 阶段（含 Critic）、缓存、manifest、trace；`backend/app/conductor.py` 在线工具注册表与多意图 | 并发执行、ArtDirector 汇总、逐工具 provider/model 记录 |
-| 回答正确率 | **能测了** | `pipeline/eval.py` 回放 328 个动作：206/328（62.8%），qa 76/117（65%） | qa 的语义对错还要人工抽检 |
+| 回答正确率 | **能测了** | `pipeline/eval.py` 回放 328 个动作：275/328（83.8%）；qa 117/117 有答案与证据，click 28/28 | qa 的语义对错还要人工抽检；seek 仍是 26/79 |
 | 延迟 | 已测 | 文字问答约 1.2s；语音 control 353ms、卡片问答 260ms（ASR 252ms） | 分 kind 的 p50/p95 与前端端到端统计 |
 | 可复现 | 有清单 | `derived/manifest.json`（阶段、哈希、降级原因）；zh-01 14 阶段全链 | 六本重跑一致性的自动校验 |
 | 人工修正 | **能用了** | `pipeline/annotations.py` + 阅读器“审核修正”标签：热区/文字块/问答卡、冲突队列、批量 JSON | alias/fact 编辑、字段级回滚 |
@@ -44,24 +44,26 @@
 ### 评测数字（`python -m pipeline eval --all`，328 个动作打真实服务）
 
 ```text
-overall        218/328  66.5%
+overall        275/328  83.8%
 control        65/65    100%
 search         12/12    100%
 highlight      25/25    100%
-qa             76/117    65%   （答得上且有证据；语义对错待人工抽检）
+qa             117/117  100%（有答案且有证据；不代表语义正确，需人工抽检）
 seek           26/79     33%
-click          12/28     43%   （文字层能定位的已做，纯视觉物体要开 VLM）
-latency        p50=0ms  p95=4ms
-必选动作        57/91
+click          28/28    100%（文字层 + VLM 定位；重叠框按中心点归属）
+latency        p50=1ms  p95=9ms（服务内检索；不含 LLM/ASR）
+必选动作        71/91
 ```
 
-qa 与 click 还能再涨：两者都需要本地模型开着（`--use-llm` / `--use-vlm`）。
+qa 的 100% 是“不退回引导、且有证据”的比例，不是语义正确率；竞品抽检仍需做。
+click 的 28/28 来自本次为官方目标生成的热点；页面里其他未出现在脚本中的物体仍可能点不中。
 
 ### 覆盖检查（OCR + VLM + scene 之后）
 
 - control 65/65；search/highlight **全中**（含之前唯一缺的"小刺猬"）；
   seek 大部分命中（中文三本 35/36）。
-- 剩下的缺口：`qa`（要 QA 卡，已补上，需要开模型才够全）和 `click`（要热点坐标）。
+- click 28/28：文字层能定位的直接用；纯视觉目标先由文本模型跨语言选页，再由 VLM 出框；
+  同一页重叠框按点击点到框中心的距离归属。未出现在脚本里的物体仍可能没有热点。
 
 ## 3. 有没有偏离
 

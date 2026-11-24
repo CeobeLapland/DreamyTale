@@ -309,10 +309,15 @@ def _run_hotspots(spec: BookSpec) -> StageOutcome:
     if not query_sets:
         return StageOutcome(skipped=True, detail="no query set")
     from .hotspots import build_hotspots
-    from .models import build_vlm
+    from .models import build_llm, build_vlm
 
     vlm = build_vlm()
-    report = build_hotspots(spec, vlm=vlm if vlm.available() else None)
+    llm = build_llm()
+    report = build_hotspots(
+        spec,
+        vlm=vlm if vlm.available() else None,
+        llm=llm if llm.available() else None,
+    )
     unresolved = list(report.get("unresolved", []) or [])
     return StageOutcome(
         outputs=["book.json"],
@@ -321,11 +326,16 @@ def _run_hotspots(spec: BookSpec) -> StageOutcome:
         params={
             "targets": report.get("targets", 0),
             "hotspots": report.get("hotspots", 0),
+            "llm_pages": report.get("from_llm_pages", 0),
             "unresolved": len(unresolved),
         },
         degraded=bool(unresolved),
         error_code="HOTSPOTS_UNRESOLVED" if unresolved else None,
-        detail=f"hotspots={report.get('hotspots', 0)} unresolved={len(unresolved)}",
+        detail=(
+            f"hotspots={report.get('hotspots', 0)} "
+            f"llm_pages={report.get('from_llm_pages', 0)} "
+            f"unresolved={len(unresolved)}"
+        ),
     )
 
 

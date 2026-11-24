@@ -1,5 +1,6 @@
 import unittest
 
+from contracts.models import content_hash
 from backend.app.interaction import handle_interaction
 from backend.app.models import (
     AnswerTier,
@@ -151,6 +152,35 @@ class InteractionTests(unittest.TestCase):
 
         self.assertEqual("fallback", response.status)
         self.assertEqual("hotspot_not_resolved", response.error.code)
+
+    def test_click_prefers_the_smallest_overlapping_hotspot(self) -> None:
+        """Visual hotspots overlap: the car inside the movie poster wins."""
+        payload = valid_package()
+        small = {
+            "hotspot_id": "hotspot-small",
+            "page_index": 1,
+            "label": "汽车",
+            "bbox_px": [30, 30, 60, 60],
+            "description": "海报里的小汽车",
+            "source": "vlm",
+            "confidence": 0.6,
+            "version": 1,
+            "status": "active",
+        }
+        small["hash"] = content_hash(small)
+        payload["pages"][0]["hotspots"].append(small)
+        package = book_package_from_dict(payload)
+
+        response = handle_interaction(
+            _request(
+                kind=InteractionKind.click,
+                input={"text": "点一下", "page_index": 1, "click": {"x_px": 40, "y_px": 40}},
+            ),
+            package,
+        )
+
+        self.assertEqual("ok", response.status)
+        self.assertEqual("hotspot-small", response.action.hotspot_id)
 
     def test_auto_kind_routes_by_text(self) -> None:
         response = handle_interaction(

@@ -361,16 +361,20 @@ def cmd_hotspots(args: argparse.Namespace) -> int:
     if not specs:
         raise SystemExit("select --all or --book")
     vlm = build_vlm() if args.use_vlm else None
+    llm = build_llm() if args.use_vlm else None
     if args.use_vlm:
         print(f"vlm provider: {vlm.name} model={getattr(vlm, 'model', '')}")
         if not vlm.available():
             print("warning: no VLM available; only text layer hotspots are created")
             vlm = None
+        if llm is not None and not llm.available():
+            llm = None
     for spec in specs:
-        report = build_hotspots(spec, vlm=vlm)
+        report = build_hotspots(spec, vlm=vlm, llm=llm)
         print(
             f"  {spec.book_id}: targets={report['targets']} hotspots={report['hotspots']} "
             f"(text={report['from_text']} vlm={report['from_model']} "
+            f"llm_pages={report.get('from_llm_pages', 0)} "
             f"unresolved={len(report['unresolved'])})"
         )
         if report["unresolved"]:

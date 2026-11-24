@@ -150,20 +150,32 @@ def _click_target(
     page = next((item for item in package.pages if item.index == page_index), None)
     if page is None:
         return None
+    if click.x_px is not None and click.y_px is not None:
+        click_x, click_y = float(click.x_px), float(click.y_px)
+    elif click.x_norm is not None and click.y_norm is not None:
+        click_x = click.x_norm * (page.width_px or 1)
+        click_y = click.y_norm * (page.height_px or 1)
+    else:
+        return None
+
+    matches: list[Hotspot] = []
     for hotspot in page.hotspots:
         x1, y1, x2, y2 = hotspot.bbox_px
-        if click.x_px is not None and click.y_px is not None:
-            if x1 <= click.x_px < x2 and y1 <= click.y_px < y2:
-                return hotspot
-            continue
-        if click.x_norm is not None and click.y_norm is not None:
-            width = page.width_px or 1
-            height = page.height_px or 1
-            x_px = click.x_norm * width
-            y_px = click.y_norm * height
-            if x1 <= x_px < x2 and y1 <= y_px < y2:
-                return hotspot
-    return None
+        if x1 <= click_x < x2 and y1 <= click_y < y2:
+            matches.append(hotspot)
+    if not matches:
+        return None
+
+    # Visual hotspots can overlap ("car" inside a "movie poster"). The click
+    # belongs to the object whose centre is closest; area only breaks ties.
+    def _rank(item: Hotspot) -> tuple[float, int]:
+        x1, y1, x2, y2 = item.bbox_px
+        dx = (x1 + x2) / 2 - click_x
+        dy = (y1 + y2) / 2 - click_y
+        area = (x2 - x1) * (y2 - y1)
+        return (dx * dx + dy * dy, area)
+
+    return min(matches, key=_rank)
 
 
 def _fallback(
