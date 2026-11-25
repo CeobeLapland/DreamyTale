@@ -22,7 +22,7 @@
 | 互动视频生成 | **跑通** | `pipeline/story.py`→`ScenePlan`→页动画→`final.py` 字幕+H.264+AAC；edge-tts 旁白与 retime 已生效；六本 `final.mp4` 均为 H.264+AAC（1:54–3:27） | 真正的文生视频（I2V 要火山方舟密钥） |
 | 实时交互 | **六类真结果** | `POST /api/interact`：control / search / highlight / seek / qa / click 都返回真实结果与证据；ASR 走本地 faster-whisper；无卡问题走运行时 LLM 或 guide；官方 click 28/28 | 脚本外物体、低置信 ASR 复述确认 |
 | 多 Agent | **跑通** | `pipeline/orchestrator.py` 14 阶段（含 Critic）、缓存、manifest、trace；`backend/app/conductor.py` 在线工具注册表与多意图 | 并发执行、ArtDirector 汇总、逐工具 provider/model 记录 |
-| 回答正确率 | **能测了** | `pipeline/eval.py` 回放 328 个动作：275/328（83.8%）；qa 117/117 有答案与证据，click 28/28 | qa 的语义对错还要人工抽检；seek 仍是 26/79 |
+| 回答正确率 | **能测了** | `pipeline/eval.py` 回放 328 个动作：314/328（95.7%）；qa 116/117，seek 66/79，click 28/28 | qa 的语义对错还要人工抽检；seek 剩余多为抽象目标 |
 | 延迟 | 已测 | 文字问答约 1.2s；语音 control 353ms、卡片问答 260ms（ASR 252ms） | 分 kind 的 p50/p95 与前端端到端统计 |
 | 可复现 | 有清单 | `derived/manifest.json`（阶段、哈希、降级原因）；zh-01 14 阶段全链 | 六本重跑一致性的自动校验 |
 | 人工修正 | **能用了** | `pipeline/annotations.py` + 阅读器“审核修正”标签：热区/文字块/问答卡、冲突队列、批量 JSON | alias/fact 编辑、字段级回滚 |
@@ -44,18 +44,19 @@
 ### 评测数字（`python -m pipeline eval --all`，328 个动作打真实服务）
 
 ```text
-overall        275/328  83.8%
+overall        314/328  95.7%
 control        65/65    100%
 search         12/12    100%
 highlight      25/25    100%
-qa             117/117  100%（有答案且有证据；不代表语义正确，需人工抽检）
-seek           26/79     33%
+qa             116/117  99%（有答案且有证据；不代表语义正确，需人工抽检）
+seek           66/79    83.5%（词面 + 热点页 + 跨语言选页）
 click          28/28    100%（文字层 + VLM 定位；重叠框按中心点归属）
-latency        p50=1ms  p95=9ms（服务内检索；不含 LLM/ASR）
-必选动作        71/91
+latency        p50=0ms  p95=6ms（服务内检索；不含 LLM/ASR）
+必选动作        86/91
 ```
 
-qa 的 100% 是“不退回引导、且有证据”的比例，不是语义正确率；竞品抽检仍需做。
+qa 的 99% 是“不退回引导、且有证据”的比例，不是语义正确率；竞品抽检仍需做。
+seek 的 83.5% 里，视觉目标优先复用同一目标的 click 热点页；剩下的 fallback 多是描述里没有的抽象目标。
 click 的 28/28 来自本次为官方目标生成的热点；页面里其他未出现在脚本中的物体仍可能点不中。
 
 ### 覆盖检查（OCR + VLM + scene 之后）

@@ -200,19 +200,71 @@ def _request_for(
 def _expected_pages(book_id: str, core: str) -> set[int]:
     """Which pages the query is about.
 
-    The official script does not say which page a seek should land on, so the
-    page text is the ground truth: the pages whose text covers the query best
-    are the ones the user means.
+    The official script does not say which page a seek should land on. The
+    click target for the same object is the most reliable location (it was
+    localised from text or the VLM), so those pages win. Otherwise score the
+    page text plus the VLM narrative and scene captions.
     """
     book_path = DATA / book_id / "book.json"
     if not book_path.is_file():
         return set()
     book = json.loads(book_path.read_text(encoding="utf-8"))
+    core = normalize(core)
+    if not core:
+        return set()
+
+    narrative_path = DATA / book_id / "derived" / "understanding" / "narrative.jsonl"
+    narratives: dict[int, str] = {}
+    if narrative_path.is_file():
+        for line in narrative_path.read_text(encoding="utf-8").splitlines():
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(record, dict) and record.get("status") == "active":
+                narratives[int(record.get("page_index") or 0)] = str(record.get("text") or "")
+
+    scene_path = DATA / book_id / "derived" / "scene" / "scene_plan.json"
+    captions: dict[int, list[str]] = {}
+    if scene_path.is_file():
+        try:
+            plan = json.loads(scene_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            plan = {}
+        for scene in plan.get("scenes", []) or []:
+            page_index = int(scene.get("page_index") or 0)
+            parts = [
+                str(scene.get("caption") or ""),
+                " ".join(str(item) for item in scene.get("aliases") or []),
+            ]
+            text = " ".join(part for part in parts if part).strip()
+            if page_index and text:
+                captions.setdefault(page_index, []).append(text)
+
+    hotspot_pages: set[int] = set()
     scores: dict[int, int] = {}
     for page in book.get("pages", []):
-        text = normalize(str(page.get("text") or ""))
-        if text:
-            scores[int(page["index"])] = overlap_score(core, text)
+        page_index = int(page.get("index") or 0)
+        labels = [
+            normalize(str(item.get("label") or ""))
+            for item in page.get("hotspots", []) or []
+        ]
+        if any(label and (core in label or label in core) for label in labels):
+            hotspot_pages.add(page_index)
+        haystack = normalize(
+            " ".join(
+                [
+                    str(page.get("text") or ""),
+                    narratives.get(page_index, ""),
+                    " ".join(captions.get(page_index, [])),
+                ]
+            )
+        )
+        if haystack:
+            scores[page_index] = overlap_score(core, haystack)
+
+    if hotspot_pages:
+        return hotspot_pages
     if not scores:
         return set()
     best = max(scores.values())

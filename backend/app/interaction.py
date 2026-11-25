@@ -15,6 +15,7 @@ from threading import Lock
 
 from contracts.retrieval import extract_target as _extract_target
 from contracts.retrieval import find_scene as _find_scene
+from contracts.retrieval import overlap_score as _overlap_score
 from contracts.retrieval import search_index as _search_index
 
 from backend.app.models import (
@@ -35,6 +36,7 @@ from backend.app.models import (
     QueryKind,
     TextSpan,
 )
+from backend.app.page_router import route_page
 from backend.app.script_parser import classify_instruction, control_action_for
 from backend.app.guide import build_guide_answer, page_start_times
 from backend.app.knowledge import find_qa_card, load_qa_cards
@@ -138,6 +140,48 @@ def _find_text(
         if needle in _normalize(page.text):
             hits.append((page.index, [], page.text))
     return hits
+
+
+def _hotspot_page(package: BookPackage, target: str) -> int | None:
+    needle = _normalize(target)
+    if not needle:
+        return None
+    for page in package.pages:
+        for hotspot in page.hotspots:
+            label = _normalize(hotspot.label)
+            if label and (needle in label or label in needle):
+                return page.index
+    return None
+
+
+def _scene_on_page(
+    scene_index: dict,
+    page_index: int,
+    target: str,
+) -> dict | None:
+    """Pick the scene on the routed page that best matches the target."""
+    scenes = [
+        scene
+        for scene in scene_index.get("scenes", []) or []
+        if int(scene.get("page_index") or 0) == page_index
+    ]
+    if not scenes:
+        return None
+    needle = _normalize(target)
+
+    def score(scene: dict) -> float:
+        haystack = _normalize(
+            " ".join(
+                [
+                    str(scene.get("caption") or ""),
+                    " ".join(str(item) for item in scene.get("aliases") or []),
+                    str(scene.get("text") or ""),
+                ]
+            )
+        )
+        return _overlap_score(needle, haystack)
+
+    return max(scenes, key=score)
 
 
 def _click_target(
@@ -375,13 +419,29 @@ def handle_interaction(
 
     if kind is InteractionKind.seek:
         scene_index = _load_index(package_root, "scene_index.json")
-        scene = _find_scene(scene_index, text)
+        target = _extract_target(text) or text
+        scene = None
+        if package is not None and target:
+            # The same target already produced a clickable hotspot. Its page is
+            # the best location we have, and it keeps seek/click consistent.
+            hotspot_page = _hotspot_page(package, target)
+            if hotspot_page is not None:
+                scene = _scene_on_page(scene_index, hotspot_page, target)
         if scene is None:
+            scene = _find_scene(scene_index, text)
+        if scene is None and target and target != text:
             # 语音没有引号："找到还不倒" 里的 "还不倒" 可能是文字而不是画面。
             # 用去掉指令词后的短目标再试一次，不额外发明内容。
-            target = _extract_target(text)
-            if target and target != text:
-                scene = _find_scene(scene_index, target)
+            scene = _find_scene(scene_index, target)
+        semantic_ms = 0
+        if scene is None and package is not None:
+            # 中文 seek 对英文 caption：词面必然失配。让文本模型从每页描述里
+            # 选页，再在该页 scene 里选最匹配的一段；选不到就继续降级。
+            route_started = time.perf_counter()
+            page_index = route_page(package, package_root, target)
+            semantic_ms = int((time.perf_counter() - route_started) * 1000)
+            if page_index is not None:
+                scene = _scene_on_page(scene_index, page_index, target)
         if scene:
             # Scene.start_ms 是相对页面的，播放器要的是全书绝对时间。
             # 不换算的话每次定位都落在第 0 毫秒，也就是第一页。
@@ -389,7 +449,7 @@ def handle_interaction(
                 int(scene.get("page_index") or 0), 0
             )
             seek_ms = page_start + int(scene.get("start_ms") or 0)
-            return _response(
+            response = _response(
                 request,
                 kind,
                 request_id=request_id,
@@ -415,6 +475,9 @@ def handle_interaction(
                 route_ms=route_ms,
                 total_ms=int((time.perf_counter() - started) * 1000),
             )
+            if semantic_ms:
+                response.latency.retrieve = semantic_ms
+            return response
 
         # 场景索引没命中，但这段文字确实在书里：翻到那一页并引用它。
         # 这仍然不是"猜一页"——页码来自文字命中。

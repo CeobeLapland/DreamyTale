@@ -22,7 +22,7 @@
 | --- | --- | --- | --- | --- | --- |
 | S0-1 | 系统可运行 | `[完成]` API 8000、阅读器 `/reader/`、生成任务可提交 | 需要一键启动脚本与离线启动说明 | 断网、冷启动能打开阅读器并完成一次文字问答 | A |
 | S0-2 | 四项核心任务均完成 | `[部分]` 1 部分、2 部分（页动画 + 外部 I2V 变体）、3 完成、4 完成 | 见第 1–4 节 | 四项都能现场演示 | 三人 |
-| S0-3 | 回答正确率 ≥0.60 | `[部分]` 文字回放 275/328；qa 117/117 有答案与证据；click 28/28 | qa 语义对错未人工抽检；seek 26/79 | 官方 qa 抽检通过；任意书内问题能答或引导 | B/C |
+| S0-3 | 回答正确率 ≥0.60 | `[部分]` 文字回放 314/328；qa 116/117 有答案与证据；seek 66/79；click 28/28 | qa 语义对错未人工抽检 | 官方 qa 抽检通过；任意书内问题能答或引导 | B/C |
 | S0-4 | 交互延迟达门槛 | `[部分]` 语音总 p50 647ms / p95 750ms；服务内检索 p95 约 5ms | 控制类 <200ms、端到端含前端/媒体未测 | 报告给出分 kind 的 p50/p95 与端到端数据 | A/C |
 | S0-5 | 关键生成内容可复现 | `[部分]` `generation_result.json`、14 阶段 manifest（zh-01）、缓存与 trace 已有 | 其余五本需补全链 manifest；六本重跑一致性未自动校验 | 删一个阶段产物，重跑只补该阶段；同输入命中缓存 | B |
 | S0-6 | 5 分钟演示视频 | `[未做]` 六本 `book.mp4` 可剪，但没有录 | 按官方 50 步脚本录一条完整 Demo | 5 分钟内展示生成、语音、点击、问答、证据 | C |
@@ -334,7 +334,8 @@
 - 语音实测（官方 WAV）：`01.wav` → 转写“播放”，control，ASR 348ms / total 353ms；`14.wav` → “为什么倒了”，qa strong，ASR 252ms / total 260ms；Turn/Trace 均落盘。
 - 外部 I2V 成片接入：`data/remote/` 里队友用 API 生成的 zh-01/en-01 成片，转 H.264 后放到 `derived/video/final-i2v.mp4`，写 `variants.json`；新增 `GET /api/books/{id}/video-variants`，前端“视频版本”可在页动画和 AI 动画之间切换。实测浏览器可播、有音轨。
 - I2V 代码补齐：`pipeline/video.py` 的 `scene_ids`/`max_scenes` 选择、失败回退、manifest 记录（provider/model/i2v_scenes/fallback）已用 fake provider 测试；字节系（火山方舟/豆包 Seedance）适配器在 `pipeline/models/volcengine_i2v.py`，只差 key 和模型 ID。
-- 视觉物体点击：`pipeline/hotspots.py` 先用文字层；中文目标对英文页先用文本模型跨语言选页，再由 VLM 出框；同一页重复/重叠框用 VLM 重新定位、运行时按中心点距离归属。官方 click 从 12/28 提到 **28/28**；全量文字回放 275/328（83.8%），qa 117/117 有答案与证据（语义待抽检），seek 仍 26/79。
+- 视觉物体点击：`pipeline/hotspots.py` 先用文字层；中文目标对英文页先用文本模型跨语言选页，再由 VLM 出框；同一页重复/重叠框用 VLM 重新定位、运行时按中心点距离归属。官方 click 从 12/28 提到 **28/28**。
+- 跨语言 seek：`backend/app/page_router.py` 在词面/scene 索引失败时让文本模型从页描述选页，优先复用同一目标的 click 热点页，再选该页最匹配 scene。seek 从 **26/79 提到 66/79**；全量文字回放 **314/328（95.7%）**，qa 116/117 有答案与证据（语义待抽检），必选 86/91。
 - `/review` 改为跳转 `/reader/#review`，删除独立审核页。
 - 测试：新增 `backend/tests/test_conductor.py`、`tests/test_critic.py`；相关后端测试 38 passed，critic/orchestrator 10 passed。
 
