@@ -645,10 +645,18 @@ async function loadEvalPanel() {
   const run = await api('/api/eval/latest').catch(() => ({}));
   if (!run.run_id) { $('evalRun').textContent = '还没有评测结果；可以运行 python -m pipeline eval --book ' + book.book_id; return; }
   const metrics = run.metrics || {};
-  $('evalRun').replaceChildren(
-    kvGrid([['用例', metrics.total ?? '-'], ['通过', metrics.ok ?? '-'], ['问答正确', `${metrics.qa_correct ?? '-'} / ${metrics.qa_total ?? '-'}`], ['回退率', metrics.fallback_rate != null ? `${Math.round(metrics.fallback_rate * 100)}%` : '-'], ['证据率', metrics.evidence_rate != null ? `${Math.round(metrics.evidence_rate * 100)}%` : '-']]),
+  const parts = [
+    kvGrid([['用例', metrics.total ?? '-'], ['通过', metrics.ok ?? '-'], ['问答正确', `${metrics.qa_correct ?? '-'} / ${metrics.qa_total ?? '-'}`], ['回退率', metrics.fallback_rate != null ? `${Math.round(metrics.fallback_rate * 100)}%` : '-'], ['证据率', metrics.evidence_rate != null ? `${Math.round(metrics.evidence_rate * 100)}%` : '-'], ['意图路由', metrics.classification_total ? `${metrics.classification_ok} / ${metrics.classification_total}` : '-']]),
+  ];
+  if (metrics.latency_by_kind) {
+    const p = document.createElement('p');
+    p.textContent = '分 kind p95：' + Object.entries(metrics.latency_by_kind).map(([kind, value]) => `${kind} ${value.p95_ms}`).join(' · ') + ' ms';
+    parts.push(p);
+  }
+  parts.push(
     Object.assign(document.createElement('p'), { textContent: `${run.run_id} · ${run.status} · ${run.book_ids?.join(', ') || ''}` }),
   );
+  $('evalRun').replaceChildren(...parts);
 }
 
 window.addEventListener('pagehide', () => {

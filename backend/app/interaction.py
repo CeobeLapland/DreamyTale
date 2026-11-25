@@ -39,7 +39,7 @@ from backend.app.models import (
 from backend.app.page_router import route_page
 from backend.app.script_parser import classify_instruction, control_action_for
 from backend.app.guide import build_guide_answer, page_start_times
-from backend.app.knowledge import find_qa_card, load_qa_cards
+from backend.app.knowledge import find_qa_card, load_qa_cards, preferred_evidence
 from backend.app.llm_answer import build_llm_answer
 from pipeline.annotations import (
     active_annotations,
@@ -584,7 +584,7 @@ def handle_interaction(
                         text=match.answer,
                         language=request.input.language,
                         tier=match.tier,
-                        evidence=list(card.evidence),
+                        evidence=preferred_evidence(card),
                         scene_id=scene_id,
                         time_ms=time_ms,
                     ),

@@ -447,10 +447,15 @@ def run_case(
     answer = payload.get("answer") or {}
     action = payload.get("action") or {}
     latency = (payload.get("latency") or {}).get("total")
+    try:
+        served_kind = InteractionKind(str(payload.get("kind")))
+    except ValueError:
+        served_kind = None
     return EvalResult(
         case_id=case.case_id,
         request_id=payload.get("request_id"),
         kind=case.kind,
+        served_kind=served_kind,
         status=str(payload.get("status") or "error"),
         verdict=verdict,
         answer_text=str(answer.get("text") or "")[:400],
@@ -500,6 +505,23 @@ def summarize(results: list[EvalResult], cases: list[EvalCase]) -> dict[str, Any
         by_tier[tier] = by_tier.get(tier, 0) + 1
     qa_guided = sum(1 for result in qa_results if result.tier == "guide")
 
+    latencies_by_kind: dict[str, list[int]] = {}
+    for result in results:
+        latencies_by_kind.setdefault(result.kind.value, []).append(result.latency_ms)
+    latency_by_kind = {
+        kind: {
+            "count": len(values),
+            "p50_ms": _percentile(values, 0.5),
+            "p95_ms": _percentile(values, 0.95),
+        }
+        for kind, values in sorted(latencies_by_kind.items())
+    }
+
+    served = [result for result in results if result.served_kind is not None]
+    classification_ok = sum(
+        1 for result in served if result.served_kind is result.kind
+    )
+
     return {
         "by_kind": accuracy,
         "by_kind_detail": by_kind,
@@ -513,8 +535,64 @@ def summarize(results: list[EvalResult], cases: list[EvalCase]) -> dict[str, Any
         "evidence_rate": round(with_evidence / len(results), 3) if results else 0.0,
         "p50_ms": _percentile(latencies, 0.5),
         "p95_ms": _percentile(latencies, 0.95),
+        "latency_by_kind": latency_by_kind,
+        "classification_ok": classification_ok,
+        "classification_total": len(served),
+        "classification_accuracy": round(classification_ok / len(served), 3)
+        if served
+        else 0.0,
         "mandatory_ok": mandatory_ok,
         "mandatory_total": len(mandatory_ids),
+    }
+
+
+def _previous_metrics(runs_root: Path) -> tuple[str, dict[str, Any]] | None:
+    """最近一次已完成回放的 metrics，用来在报告里显示与上次的差值。"""
+    if not runs_root.is_dir():
+        return None
+    for candidate in sorted(
+        (item for item in runs_root.iterdir() if item.is_dir()), reverse=True
+    ):
+        run_file = candidate / "run.json"
+        if not run_file.is_file():
+            continue
+        try:
+            data = json.loads(run_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        metrics = data.get("metrics")
+        if isinstance(metrics, dict):
+            return str(data.get("run_id") or candidate.name), metrics
+    return None
+
+
+def _delta_metrics(
+    current: dict[str, Any],
+    previous: dict[str, Any],
+    previous_id: str,
+) -> dict[str, Any]:
+    def diff(left: Any, right: Any) -> int:
+        return int(left or 0) - int(right or 0)
+
+    kinds = sorted(
+        set(current.get("by_kind_detail") or {})
+        | set(previous.get("by_kind_detail") or {})
+    )
+    by_kind: dict[str, dict[str, int]] = {}
+    for kind in kinds:
+        now = (current.get("by_kind_detail") or {}).get(kind) or {}
+        before = (previous.get("by_kind_detail") or {}).get(kind) or {}
+        by_kind[kind] = {
+            "ok": diff(now.get("ok"), before.get("ok")),
+            "total": diff(now.get("total"), before.get("total")),
+        }
+    return {
+        "previous_run_id": previous_id,
+        "ok": diff(current.get("ok"), previous.get("ok")),
+        "total": diff(current.get("total"), previous.get("total")),
+        "p50_ms": diff(current.get("p50_ms"), previous.get("p50_ms")),
+        "p95_ms": diff(current.get("p95_ms"), previous.get("p95_ms")),
+        "by_kind": by_kind,
     }
 
 
@@ -584,6 +662,9 @@ def run_eval(
 
     metrics = summarize(results, cases)
     run_root = DATA.parent.parent / RUNS_DIR / run_id
+    previous = _previous_metrics(run_root.parent)
+    if previous is not None:
+        metrics["delta"] = _delta_metrics(metrics, previous[1], previous[0])
     run_root.mkdir(parents=True, exist_ok=True)
     with (run_root / "cases.jsonl").open("w", encoding="utf-8") as handle:
         for case in cases:

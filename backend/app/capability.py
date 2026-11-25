@@ -119,7 +119,6 @@ def build_capability_report(
         limitations.append("还没有生成视频，只能用静态页播放")
     if not qa_cards:
         limitations.append("还没有问答卡，问答只能给引导而不是答案")
-    limitations.append("未接入语音识别与问答模型，语音输入不会被转写")
 
     coverage = Coverage(
         text_search=pages_with_text / pages_total if pages_total else 0.0,

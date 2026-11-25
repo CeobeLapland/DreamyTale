@@ -55,6 +55,12 @@ class KnowledgeCardTests(unittest.TestCase):
             },
             evidence=[
                 Evidence(page_index=2, quote="我们一起搭城堡"),
+                Evidence(
+                    page_index=2,
+                    bbox_px=(30, 30, 160, 70),
+                    span_id="span-zh-01-002-001",
+                    quote="我们一起搭城堡",
+                ),
             ],
             video_anchor=VideoAnchor(
                 scene_id="scene-zh-01-002",
@@ -114,6 +120,7 @@ class KnowledgeCardTests(unittest.TestCase):
         self.assertEqual("他们在搭积木城堡。", response.answer.text)
         self.assertEqual("scene-zh-01-002", response.answer.scene_id)
         self.assertEqual(1000, response.answer.time_ms)
+        self.assertEqual((30, 30, 160, 70), response.answer.evidence[0].bbox_px)
 
     def test_missing_card_keeps_fallback(self) -> None:
         (self.package_root / "derived" / "knowledge" / "cards.jsonl").unlink()

@@ -1083,6 +1083,8 @@ class EvalResult(_Base):
     evidence: list[Evidence] = Field(default_factory=list)
     latency_ms: int = Field(ge=0)
     asr_text: str | None = None
+    # 服务端实际返回的 kind；用来统计意图分类准确率（可能不等于期望 kind）。
+    served_kind: InteractionKind | None = None
     notes: str | None = None
 
 

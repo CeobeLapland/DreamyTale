@@ -332,6 +332,17 @@ def cmd_eval(args: argparse.Namespace) -> int:
     print(f"  by kind: {metrics['by_kind']}")
     print(f"  qa: {metrics['qa_correct']}/{metrics['qa_total']}  evidence_rate={metrics['evidence_rate']}")
     print(f"  latency p50={metrics['p50_ms']}ms p95={metrics['p95_ms']}ms")
+    print(f"  latency by kind: {metrics['latency_by_kind']}")
+    print(
+        f"  routing: {metrics['classification_ok']}/{metrics['classification_total']}"
+        f" ({metrics['classification_accuracy']})"
+    )
+    delta = metrics.get("delta")
+    if delta:
+        print(
+            f"  delta vs {delta['previous_run_id']}: ok {delta['ok']:+d},"
+            f" p50 {delta['p50_ms']:+d}ms, p95 {delta['p95_ms']:+d}ms"
+        )
     print(f"  mandatory ok: {metrics['mandatory_ok']}/{metrics['mandatory_total']}")
     print(f"  results: {report['run']['results_path']}")
     return 0

@@ -22,8 +22,8 @@
 | 互动视频生成 | **跑通** | `pipeline/story.py`→`ScenePlan`→页动画→`final.py` 字幕+H.264+AAC；edge-tts 旁白与 retime 已生效；六本 `final.mp4` 均为 H.264+AAC（1:54–3:27） | 真正的文生视频（I2V 要火山方舟密钥） |
 | 实时交互 | **六类真结果** | `POST /api/interact`：control / search / highlight / seek / qa / click 都返回真实结果与证据；ASR 走本地 faster-whisper，低置信时要求复述；答案 TTS 返回 `answer.audio_path`；官方 click 28/28 | 脚本外物体、TTS 首次合成延迟 |
 | 多 Agent | **跑通** | `pipeline/orchestrator.py` 14 阶段（含 Critic）、缓存、manifest、trace；`backend/app/conductor.py` 在线工具注册表与多意图 | 并发执行、ArtDirector 汇总、逐工具 provider/model 记录 |
-| 回答正确率 | **能测了** | `pipeline/eval.py` 回放 328 个动作：314/328（95.7%）；qa 116/117，seek 66/79，click 28/28 | qa 的语义对错还要人工抽检；seek 剩余多为抽象目标 |
-| 延迟 | 已测 | 语音卡片问答 + 缓存 TTS total 180ms（ASR 179ms）；首次 TTS 合成约 2.4s；文字 LLM 问答约 1.2s | 分 kind 的 p50/p95 与前端端到端统计；LLM+首次 TTS 超 2s |
+| 回答正确率 | **能测了** | `pipeline/eval.py` 回放 328 个动作：315/328（96.0%）；qa 116/117，seek 67/79，click 28/28，意图分类 328/328 | qa 的语义对错还要人工抽检；seek 剩余多为抽象目标 |
+| 延迟 | 已测 | 语音卡片问答 + 缓存 TTS total 180ms（ASR 179ms）；首次 TTS 合成约 2.4s；服务内分 kind p95：seek 16ms、search 4ms、highlight 3ms、qa 3ms、control/click 0ms | 端到端含前端/媒体未测；LLM+首次 TTS 超 2s |
 | 可复现 | 有清单 | `derived/manifest.json`（阶段、哈希、降级原因）；zh-01 14 阶段全链 | 六本重跑一致性的自动校验 |
 | 人工修正 | **能用了** | `pipeline/annotations.py` + 阅读器“审核修正”标签：热区/文字块/问答卡、冲突队列、批量 JSON | alias/fact 编辑、字段级回滚 |
 | 通用性 | 六本全跑通 | 同一套命令跑完六本；素材路径走环境变量；中文名乱码兜底 | 真·没见过的书冷启动实测 |
@@ -44,19 +44,21 @@
 ### 评测数字（`python -m pipeline eval --all`，328 个动作打真实服务）
 
 ```text
-overall        314/328  95.7%
+overall        315/328  96.0%（run-20261125-080126）
 control        65/65    100%
-search         12/12    100%
-highlight      25/25    100%
+search         20/20    100%
+highlight      19/19    100%
 qa             116/117  99%（有答案且有证据；不代表语义正确，需人工抽检）
-seek           66/79    83.5%（词面 + 热点页 + 跨语言选页）
+seek           67/79    84.8%（词面 + 热点页 + 跨语言选页）
 click          28/28    100%（文字层 + VLM 定位；重叠框按中心点归属）
-latency        p50=0ms  p95=6ms（服务内检索；不含 LLM/ASR）
-必选动作        86/91
+routing        328/328  100%（服务端返回 kind 与期望一致）
+latency        p50=1ms  p95=10ms（服务内；不含 LLM/ASR）
+latency kind   seek p95 16ms / search 4ms / highlight 3ms / qa 3ms / control·click 0ms
+必选动作        87/91
 ```
 
 qa 的 99% 是“不退回引导、且有证据”的比例，不是语义正确率；竞品抽检仍需做。
-seek 的 83.5% 里，视觉目标优先复用同一目标的 click 热点页；剩下的 fallback 多是描述里没有的抽象目标。
+seek 的 84.8% 里，视觉目标优先复用同一目标的 click 热点页；剩下的 fallback 多是描述里没有的抽象目标。
 click 的 28/28 来自本次为官方目标生成的热点；页面里其他未出现在脚本中的物体仍可能点不中。
 
 ### 覆盖检查（OCR + VLM + scene 之后）
@@ -83,11 +85,12 @@ click 的 28/28 来自本次为官方目标生成的热点；页面里其他未�
 | (3) 实时交互：语音提问、触控式万物识别 | ✅ 文字六类 + 本地 ASR + 运行时 LLM 兜底；纯视觉物体定位待补 |
 | (4) 多 Agent 协同：可编排、可复用 | ✅ 编排器 + Critic + 缓存/manifest/trace + 在线工具注册表 |
 
-**基础门槛**：正确率 ≥0.60 —— 现在有 62.8% 的可测数字（qa 65%，语义对错待人工抽检）；
+**基础门槛**：正确率 ≥0.60 —— 文字回放 315/328（96.0%）；qa 语义对错待人工抽检；
 延迟已测；可复现有 manifest 与哈希，缺重跑一致性校验。
 
-**材料清单**：源代码 ✅；5 分钟演示视频 ✅（六条 `book.mp4` 可剪）；网页 Demo ✅（`frontend/`）；
-项目说明书 ❌；数据与模型来源清单 ✅（`docs/MODEL_SOURCES.md`）。
+**材料清单**：源代码 ✅；5 分钟演示视频 `[部分]`（逐镜脚本 `docs/DEMO_SCRIPT.md`，片待录）；网页 Demo ✅（`frontend/`）；
+一键启动与离线说明 ✅（`start.ps1`/`start.bat`，README「一键启动 / 离线说明」）；
+项目说明书 `[部分]`（初稿 17 页：`项目说明书_纸书智伴.docx`，待填队伍信息与校对）；数据与模型来源清单 ✅（`docs/MODEL_SOURCES.md`）。
 
 ## 4. 现在的完整链路
 
@@ -138,9 +141,8 @@ PDF → pages + book.json(v2)            pipeline ingest
 ## 8. 什么时候需要人
 
 - **已做**：主干后端可运行、契约统一到 v2、六本全链路跑通并出片、前端初版可运行、
-  评测回放可用（218/328 = 66.5%）、QA 卡与热点生成器就位、来源清单写好。
-- **现在**：开一下 LM Studio（qa 全覆盖 + 视觉热点定位，约 15 分钟计算量）。
-- **现在**：ComfyUI 里下视频模型（LTX-Video 快，Wan2.1 I2V 质量好）；或给火山方舟 `ARK_API_KEY`（要钱、要写进材料的调用范围）。
-- **现在**：本机装 `edge-tts`（之前装失败），否则只有字幕没有配音。
+  评测回放 315/328（96.0%）、来源清单、一键启动与离线说明都已就位。
+- **现在**：演示前开着 LM Studio（无卡问答与视觉热点定位用）；语音/旁白依赖已经装好。
+- **现在**：要真跑 I2V 就给火山方舟 `ARK_API_KEY`（要钱、调用范围已写进来源清单）；否则用队友好外部成片做视频变体。
 - **后面**：QA 卡语义对错的人工抽检；说明书与演示视频。
 - **代码上**：暂时不需要你动手，我继续做多 Agent 编排与说明书素材。
