@@ -85,11 +85,11 @@
 | R-1 | 六类动作（ARCH §4.3） | `[完成]` control/seek/search/highlight/qa/click 真实；click 官方 28/28 | 视频内动态物体仍缺 | 六类现场可用 | A/B/C |
 | R-2 | 语音提问（赛题任务 3） | `[完成]` faster-whisper large-v3，本地 GPU | 模型/路径写进来源清单 | 300 条官方 WAV 可回放 | B |
 | R-3 | 中英混说（ARCH §3.7） | `[部分]` 实测中英夹说可用 | 需低置信度复述确认 | 低置信不硬猜 | B |
-| R-4 | ASR 低置信确认（ARCH §4.5） | `[未做]` | 用置信度/二次确认 | 低置信时让用户复述 | A/B |
+| R-4 | ASR 低置信确认（ARCH §4.5） | `[完成]` faster-whisper 平均 token 概率；低于 `asr.confirm_below`（默认 0.45）不路由，返回“我听到的是……请再说一遍”，Turn/Trace 记录 | 阈值还需用官方音频抽检校准 | 低置信时让用户复述 | A/B |
 | R-5 | 意图路由（ARCH §4.3） | `[部分]` 规则分类；Conductor 已能拆分“先……然后……”多意图 | 模糊句、上下文消歧未做 | “先找画面再问为什么”可执行 | A/B |
 | R-6 | 会话状态（ARCH §4.1） | `[部分]` C 传 page/time/history；后端只记上一轮检索目标 | 缺 `last_scene_id/last_entities/last_lang` 持久化 | 多轮指代可用 | A |
 | R-7 | 翻页优先/seek 后限定场景（ARCH §4.1） | `[部分]` Conductor 把 seek 落点页传给后续问答；卡片检索仍全书 | 问答卡按当前场景过滤 | 跳页后问答不串页 | A |
-| R-8 | 答案 TTS（ARCH §4.2） | `[部分]` C 浏览器朗读降级；无服务端 `answer.audio_path` | 接 TTS，返回音频路径 | 回答可听、可续播 | B/C |
+| R-8 | 答案 TTS（ARCH §4.2） | `[完成]` `backend/app/answer_tts.py`：edge-tts 合成并缓存到 `derived/audio/answer/`，`answer.audio_path` 返回给播放器；默认仅语音输入启用，`DREAMYTALE_ANSWER_TTS=always` 可让文字回答也有音轨 | 首次合成受网络影响约 2s；卡片答案已预热缓存 | 回答可听、可续播 | B/C |
 | R-9 | 证据展示/点击“依据”（ARCH §5） | `[完成]` 回答带依据 chip；点击翻到证据页并画 bbox 框，文字证据也能用 span 拼出框 | 无 | 答案旁能点“依据” | C |
 | R-10 | 触控万物识别（赛题任务 3） | `[完成]` 文字层 + VLM：中文目标跨语言选页、VLM 出框；同页重叠框按中心点归属；官方 click 28/28 | 脚本外物体仍可能无热点 | 官方 click 目标全命中 | B |
 | R-11 | 视频内动态对象点击 | `[未做]` | 见 V-14 | 见 V-14 | B/C |
@@ -97,7 +97,7 @@
 | R-13 | 任意书内问题 | `[部分]` 可回答的问题已带证据；假前提/无依据退回 guide | 需要抽检更多书 | 任意问题有答案或引导 | A/B |
 | R-14 | 多模态对话历史（赛题任务 3、DATA §9.3 Turn） | `[完成]` 每轮写 `data/turns/<date>.jsonl`；刷新后用同一 session 回放 | 图片输入仍未产生 Turn 字段 | 刷新后历史可回放 | A |
 | R-15 | 交互 Trace（DATA §8.5） | `[完成]` 每轮写 `data/traces/<date>/<request_id>.json`，含 route/tool 阶段与耗时 | 无 | 每次回答可审计 | A |
-| R-16 | 延迟预算（ARCH §4.4） | `[部分]` 文字问答 0.46–2.6s；语音实测：control 353ms、卡片问答 260ms（ASR 252ms）；LLM 兜底语音约 1.5s | 还没有分 kind 的 p50/p95 报告 | 分 kind 报告达标 | A/C |
+| R-16 | 延迟预算（ARCH §4.4） | `[部分]` 语音：ASR 约 180–400ms；卡片答案 + 缓存 TTS 实测 total 180ms；首次 TTS 合成约 2.4s | 还没有分 kind 的 p50/p95 报告；LLM 兜底 + 首次 TTS 会超 2s | 分 kind 报告达标 | A/C |
 | R-17 | 失败降级（ARCH §4.5） | `[完成]` qa/seek/click 有 guide/fallback | 低置信 ASR、页识别不确定未做 | 不空答、不假装成功 | A/B |
 | R-18 | 禁止无边界聊天（ARCH §1） | `[完成]` 没有开放聊天 | 保持 | 只答书内内容 | A/B |
 | R-19 | `transcript` 展示 | `[完成]` 语音回答气泡显示“听到：……” | 无 | 语音问答能看到转写 | C |
@@ -336,6 +336,8 @@
 - I2V 代码补齐：`pipeline/video.py` 的 `scene_ids`/`max_scenes` 选择、失败回退、manifest 记录（provider/model/i2v_scenes/fallback）已用 fake provider 测试；字节系（火山方舟/豆包 Seedance）适配器在 `pipeline/models/volcengine_i2v.py`，只差 key 和模型 ID。
 - 视觉物体点击：`pipeline/hotspots.py` 先用文字层；中文目标对英文页先用文本模型跨语言选页，再由 VLM 出框；同一页重复/重叠框用 VLM 重新定位、运行时按中心点距离归属。官方 click 从 12/28 提到 **28/28**。
 - 跨语言 seek：`backend/app/page_router.py` 在词面/scene 索引失败时让文本模型从页描述选页，优先复用同一目标的 click 热点页，再选该页最匹配 scene。seek 从 **26/79 提到 66/79**；全量文字回放 **314/328（95.7%）**，qa 116/117 有答案与证据（语义待抽检），必选 86/91。
+- 服务端答案 TTS：edge-tts 合成短答案，缓存到 `derived/audio/answer/<hash>.mp3`，`answer.audio_path` 直接给播放器；默认 `voice` 模式，`DREAMYTALE_ANSWER_TTS=always/off` 可切换。113 条卡片 strong 答案已预热，缓存命中时 TTS 0ms。
+- 低置信 ASR：faster-whisper 输出平均 token 概率；低于 0.45 不进入路由，返回“我听到的是……请再说一遍”，并记录 Turn/Trace；官方短指令实测 0.62–0.82。
 - `/review` 改为跳转 `/reader/#review`，删除独立审核页。
 - 测试：新增 `backend/tests/test_conductor.py`、`tests/test_critic.py`；相关后端测试 38 passed，critic/orchestrator 10 passed。
 

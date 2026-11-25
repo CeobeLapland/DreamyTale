@@ -8,8 +8,8 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from backend.app.api import app, books
-from backend.app.asr_runtime import answer_language, recognize
-from backend.app.conductor import run_interaction
+from backend.app.asr_runtime import answer_language, is_low_confidence, recognize
+from backend.app.conductor import run_interaction, run_low_confidence
 from backend.app.models import InteractionKind, InteractionRequest
 
 @app.post('/api/interact/audio')
@@ -56,6 +56,7 @@ async def audio_interaction(audio: UploadFile = File(...), request: str = Form(.
                 package_root,
                 data_root=books.root.parent,
                 input_audio='upload://current-audio',
+                answer_audio=False,
             )
             response.status = 'fallback'
             response.transcript = result.text if result is not None else None
@@ -66,6 +67,19 @@ async def audio_interaction(audio: UploadFile = File(...), request: str = Form(.
             if response.error is not None:
                 response.error.message = message
             return response
+
+        if is_low_confidence(result):
+            # Whisper itself is unsure. Never route a guess into the book.
+            return await run_in_threadpool(
+                run_low_confidence,
+                payload,
+                package,
+                package_root,
+                transcript=result.text,
+                confidence=result.confidence,
+                asr_ms=result.latency_ms,
+                data_root=books.root.parent,
+            )
 
         # 语音输入必须重新路由：前端把音频请求固定标成 qa，
         # 但"播放/暂停/找到……"是 control/seek，不能被当成问答。

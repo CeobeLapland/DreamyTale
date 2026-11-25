@@ -16,6 +16,7 @@ the demo's "生成链路 / 工具调用" panel shows.
 
 from __future__ import annotations
 
+import os
 import re
 import time
 import uuid
@@ -23,11 +24,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from backend.app.answer_tts import synthesize_answer
 from backend.app.interaction import handle_interaction, interaction_kind_for
 from backend.app.models import (
     ActionType,
     AnswerPayload,
     AnswerTier,
+    ErrorInfo,
     InteractionAction,
     InteractionKind,
     InteractionRequest,
@@ -311,6 +314,49 @@ def _record(
     write_trace(trace, data_root)
 
 
+def _answer_audio_enabled(requested: bool | None, input_audio: str | None) -> bool:
+    if requested is not None:
+        return requested
+    mode = os.environ.get("DREAMYTALE_ANSWER_TTS", "voice").strip().lower()
+    if mode == "always":
+        return True
+    if mode == "voice":
+        return bool(input_audio)
+    return False
+
+
+def _attach_answer_audio(
+    response: InteractionResponse,
+    request: InteractionRequest,
+    package_root: Path | None,
+    *,
+    enabled: bool,
+    stages: list[TraceStage],
+) -> None:
+    if (
+        not enabled
+        or package_root is None
+        or response.answer is None
+        or not response.answer.text
+        or response.answer.audio_path
+    ):
+        return
+    started = time.perf_counter()
+    audio = synthesize_answer(
+        package_root,
+        response.answer.text,
+        response.answer.language or request.input.language,
+    )
+    elapsed = int((time.perf_counter() - started) * 1000)
+    if not audio:
+        stages.append(TraceStage(name="tts", ms=elapsed, ok=False))
+        return
+    response.answer.audio_path = audio
+    response.latency.tts = elapsed
+    response.latency.total += elapsed
+    stages.append(TraceStage(name="tts", ms=elapsed, ok=True))
+
+
 def run_interaction(
     request: InteractionRequest,
     package,
@@ -320,6 +366,7 @@ def run_interaction(
     input_text: str | None = None,
     input_audio: str | None = None,
     asr_ms: int | None = None,
+    answer_audio: bool | None = None,
 ) -> InteractionResponse:
     """Run one request end-to-end, persist Turn + Trace, and return the answer."""
     started = time.perf_counter()
@@ -366,6 +413,14 @@ def run_interaction(
         merged.latency.asr = int(asr_ms)
         merged.latency.total = elapsed_ms + int(asr_ms)
 
+    _attach_answer_audio(
+        merged,
+        request,
+        package_root,
+        enabled=_answer_audio_enabled(answer_audio, input_audio),
+        stages=stages,
+    )
+
     _record(
         request,
         merged,
@@ -376,3 +431,79 @@ def run_interaction(
         stages=stages,
     )
     return merged
+
+
+def run_low_confidence(
+    request: InteractionRequest,
+    package,
+    package_root: Path | None,
+    *,
+    transcript: str,
+    confidence: float | None,
+    asr_ms: int,
+    input_audio: str | None = "upload://current-audio",
+    data_root: Path | None = None,
+    answer_audio: bool | None = None,
+) -> InteractionResponse:
+    """Do not guess when ASR is unsure: say what was heard and ask again."""
+    started = time.perf_counter()
+    request_id = request.request_id or f"req-{uuid.uuid4().hex[:12]}"
+    language = request.input.language or (
+        package.language if package is not None else None
+    )
+    spoken = str(transcript or "").strip()
+    if language and language.lower().startswith("en"):
+        message = (
+            f'I heard “{spoken}”, but I am not sure I caught it. '
+            "Could you say it again, or type the question?"
+        )
+    else:
+        message = (
+            f"我听到的是“{spoken}”，但不太确定。"
+            "请再说一遍，或者直接把问题打出来。"
+        )
+    response = InteractionResponse(
+        request_id=request_id,
+        book_id=request.book_id,
+        session_id=request.session_id,
+        kind=InteractionKind.qa,
+        action=InteractionAction(type=ActionType.none),
+        answer=AnswerPayload(
+            text=message,
+            language=language,
+            tier=AnswerTier.guide,
+            evidence=[],
+        ),
+        transcript=spoken,
+        latency=LatencyBreakdown(asr=int(asr_ms), route=1, total=int(asr_ms) + 1),
+        status="fallback",
+        error=ErrorInfo(
+            code="low_confidence_asr",
+            message=message,
+            retryable=True,
+        ),
+    )
+    stages = [
+        TraceStage(name="asr", ms=int(asr_ms), ok=True),
+        TraceStage(name="confirm", ms=1, ok=True),
+    ]
+    _attach_answer_audio(
+        response,
+        request,
+        package_root,
+        enabled=_answer_audio_enabled(answer_audio, input_audio),
+        stages=stages,
+    )
+    response.latency.total = max(
+        response.latency.total, int((time.perf_counter() - started) * 1000)
+    )
+    _record(
+        request,
+        response,
+        data_root=data_root,
+        input_text=spoken,
+        input_audio=input_audio,
+        intents=[(InteractionKind.qa, spoken)],
+        stages=stages,
+    )
+    return response

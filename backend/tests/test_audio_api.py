@@ -33,6 +33,11 @@ class AudioInteractionTests(unittest.TestCase):
         api.books = store
         c_demo.books = store
         self.client = TestClient(c_demo.app)
+        self.tts = patch(
+            "backend.app.conductor.synthesize_answer", return_value=None
+        )
+        self.tts.start()
+        self.addCleanup(self.tts.stop)
 
     def tearDown(self) -> None:
         api.books = self.original_api_books
@@ -78,6 +83,44 @@ class AudioInteractionTests(unittest.TestCase):
         self.assertIn("语音识别", body["answer"]["text"])
         self.assertIn("ASR model not found", body["answer"]["text"])
         self.assertIsNone(body["transcript"])
+
+    def test_low_confidence_asks_for_a_repeat_instead_of_routing(self) -> None:
+        with patch.object(
+            c_demo,
+            "recognize",
+            return_value=(
+                ASRResult(text="播放？", confidence=0.2, latency_ms=11),
+                "",
+            ),
+        ):
+            response = self._post()
+
+        body = response.json()
+        self.assertEqual("fallback", body["status"])
+        self.assertEqual("low_confidence_asr", body["error"]["code"])
+        self.assertEqual("none", body["action"]["type"])
+        self.assertEqual("播放？", body["transcript"])
+        self.assertIn("不太确定", body["answer"]["text"])
+
+    def test_answer_audio_path_is_returned_when_tts_succeeds(self) -> None:
+        with patch.object(
+            c_demo,
+            "recognize",
+            return_value=(
+                ASRResult(text="他们在搭什么？", confidence=0.9, latency_ms=10),
+                "",
+            ),
+        ), patch(
+            "backend.app.conductor.synthesize_answer",
+            return_value="derived/audio/answer/test.mp3",
+        ):
+            response = self._post()
+
+        body = response.json()
+        self.assertEqual(
+            "derived/audio/answer/test.mp3", body["answer"]["audio_path"]
+        )
+        self.assertIsNotNone(body["latency"]["tts"])
 
 
 if __name__ == "__main__":

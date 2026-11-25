@@ -88,6 +88,8 @@ llm:
 asr:
   provider: faster_whisper
   fallback: [null]
+  # 低于这个平均 token 概率就不猜，改成'我听到的是……，请再说一遍'。
+  confirm_below: 0.45
   faster_whisper:
     model: D:/LLM/models/faster-whisper/small
     device: auto

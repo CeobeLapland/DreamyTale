@@ -20,10 +20,10 @@
 | --- | --- | --- | --- |
 | 内容理解 | **跑通** | `pipeline/understanding.py`（OCR）+ `pipeline/narrative.py`（本地 VLM）出页级叙述、实体、可见文字 | 英文书的 visible_text 靠 VLM，质量待人工抽检 |
 | 互动视频生成 | **跑通** | `pipeline/story.py`→`ScenePlan`→页动画→`final.py` 字幕+H.264+AAC；edge-tts 旁白与 retime 已生效；六本 `final.mp4` 均为 H.264+AAC（1:54–3:27） | 真正的文生视频（I2V 要火山方舟密钥） |
-| 实时交互 | **六类真结果** | `POST /api/interact`：control / search / highlight / seek / qa / click 都返回真实结果与证据；ASR 走本地 faster-whisper；无卡问题走运行时 LLM 或 guide；官方 click 28/28 | 脚本外物体、低置信 ASR 复述确认 |
+| 实时交互 | **六类真结果** | `POST /api/interact`：control / search / highlight / seek / qa / click 都返回真实结果与证据；ASR 走本地 faster-whisper，低置信时要求复述；答案 TTS 返回 `answer.audio_path`；官方 click 28/28 | 脚本外物体、TTS 首次合成延迟 |
 | 多 Agent | **跑通** | `pipeline/orchestrator.py` 14 阶段（含 Critic）、缓存、manifest、trace；`backend/app/conductor.py` 在线工具注册表与多意图 | 并发执行、ArtDirector 汇总、逐工具 provider/model 记录 |
 | 回答正确率 | **能测了** | `pipeline/eval.py` 回放 328 个动作：314/328（95.7%）；qa 116/117，seek 66/79，click 28/28 | qa 的语义对错还要人工抽检；seek 剩余多为抽象目标 |
-| 延迟 | 已测 | 文字问答约 1.2s；语音 control 353ms、卡片问答 260ms（ASR 252ms） | 分 kind 的 p50/p95 与前端端到端统计 |
+| 延迟 | 已测 | 语音卡片问答 + 缓存 TTS total 180ms（ASR 179ms）；首次 TTS 合成约 2.4s；文字 LLM 问答约 1.2s | 分 kind 的 p50/p95 与前端端到端统计；LLM+首次 TTS 超 2s |
 | 可复现 | 有清单 | `derived/manifest.json`（阶段、哈希、降级原因）；zh-01 14 阶段全链 | 六本重跑一致性的自动校验 |
 | 人工修正 | **能用了** | `pipeline/annotations.py` + 阅读器“审核修正”标签：热区/文字块/问答卡、冲突队列、批量 JSON | alias/fact 编辑、字段级回滚 |
 | 通用性 | 六本全跑通 | 同一套命令跑完六本；素材路径走环境变量；中文名乱码兜底 | 真·没见过的书冷启动实测 |

@@ -11,6 +11,7 @@ editing `config/models.yaml`, not the pipeline or the backend.
 
 from __future__ import annotations
 
+import math
 import os
 import time
 import wave
@@ -236,12 +237,25 @@ class FasterWhisperASR:
                 condition_on_previous_text=False,
                 temperature=0.0,
             )
-            text = "".join(segment.text for segment in segments).strip()
+            decoded = list(segments)
+            text = "".join(segment.text for segment in decoded).strip()
+
+        # avg_logprob is a token log probability; exp() maps it to 0..1 and the
+        # mean gives one confidence number for the whole utterance.
+        probabilities = [
+            math.exp(min(0.0, float(segment.avg_logprob)))
+            for segment in decoded
+            if getattr(segment, "avg_logprob", None) is not None
+        ]
+        confidence = (
+            sum(probabilities) / len(probabilities) if probabilities else None
+        )
 
         return ASRResult(
             text=text,
             language=getattr(info, "language", None),
             language_probability=getattr(info, "language_probability", None),
+            confidence=confidence,
             duration_ms=duration_ms,
             latency_ms=int((time.perf_counter() - started) * 1000),
         )

@@ -31,6 +31,9 @@ class ASRResult:
     text: str
     language: str | None = None
     language_probability: float | None = None
+    # Mean token probability across decoded segments. None when the provider
+    # cannot report it; the runtime then skips low-confidence confirmation.
+    confidence: float | None = None
     duration_ms: int = 0
     latency_ms: int = 0
 

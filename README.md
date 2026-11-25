@@ -64,6 +64,9 @@ python -m pipeline review --book zh-01 --page 6 --target "我又不是故意的"
 python -m uvicorn backend.app.c_demo:app --port 8000
 python -m pipeline eval --all
 
+# 答案 TTS：默认只给语音输入合成；设为 always 让文字回答也带音频
+# $env:DREAMYTALE_ANSWER_TTS = "always"   # PowerShell
+
 # 只跑某一步
 python -m pipeline ingest --all
 python -m pipeline parse-scripts --all
@@ -75,7 +78,7 @@ python -m pipeline ingest --pdf path/to/book.pdf --book-id my-book --language zh
 ```
 
 依赖：Python 3.11+、`pymupdf`、`pydantic`、`PyYAML`、`opencv-python-headless`、`imageio-ffmpeg`。
-旁白需要 `edge-tts`（会调用微软在线语音服务）；OCR 可选：
+旁白和答案音频需要 `edge-tts`（会调用微软在线语音服务）；OCR 可选：
 
 ```bash
 pip install -r requirements.txt
