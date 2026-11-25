@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-let book = null, result = null, canonicalResult = null, variants = [], activeVariant = 'canonical', plan = null, index = 0, busy = false, recorder = null, stream = null, wasPlaying = false, turns = [], session = crypto.randomUUID(), qaCards = [], editing = null, toolsLoaded = false;
+let book = null, result = null, canonicalResult = null, variants = [], activeVariant = 'canonical', plan = null, index = 0, busy = false, recorder = null, stream = null, wasPlaying = false, turns = [], session = crypto.randomUUID(), qaCards = [], editing = null, toolsLoaded = false, showVideoObjects = true;
 const video = $('video'), reply = $('reply');
 const TIER_LABEL = { strong: '卡片', weak: '模型作答', quote: '原文', guide: '引导' };
 const notify = t => $('notice').textContent = t;
@@ -67,6 +67,7 @@ function highlightEvidence(evidence) {
   // Show the page image, not the letterboxed video, so the box lines up with
   // the printed page. "继续故事" switches back to the video.
   video.pause(); video.hidden = true; $('page').hidden = false;
+  updateVideoObjects();
   const draw = () => {
     const stage = document.querySelector('.stage'), img = $('page');
     if (!img.naturalWidth) return;
@@ -136,7 +137,7 @@ function pause() {
   document.querySelectorAll('#messages audio').forEach(a => a.pause()); wasPlaying = !video.paused; video.pause(); reply.pause(); speechSynthesis.cancel();
 }
 async function resume() {
-  document.querySelectorAll('#messages audio').forEach(a => a.pause()); reply.pause(); speechSynthesis.cancel(); if (video.hasAttribute('src')) { video.hidden = false; $('page').hidden = true; $('empty').hidden = true; clearEvidence(); try { await video.play(); } catch { notify('请点击视频播放按钮继续。'); } }
+  document.querySelectorAll('#messages audio').forEach(a => a.pause()); reply.pause(); speechSynthesis.cancel(); if (video.hasAttribute('src')) { video.hidden = false; $('page').hidden = true; $('empty').hidden = true; clearEvidence(); updateVideoObjects(); try { await video.play(); } catch { notify('请点击视频播放按钮继续。'); } }
 }
 function currentMs() {
   return Math.round(video.currentTime * 1000) + (result?.full_video_path ? 0 : (result?.pages?.find(p => p.page_index === book?.pages[index]?.index)?.start_ms || 0));
@@ -149,7 +150,7 @@ function showPage() {
     }
   } else {
     video.removeAttribute('src'); video.load();
-  } $('subtitle').textContent = ''; clearEvidence();
+  } $('subtitle').textContent = ''; clearEvidence(); updateVideoObjects();
 }
 function sessionFor(bookId) {
   const key = `dreamytale.session.${bookId}`;
@@ -173,9 +174,96 @@ function applyVariant(id) {
   if (video.readyState >= 1) seek();
   else video.addEventListener('loadedmetadata', seek, { once: true });
   $('subtitle').textContent = '';
-  notify(variant ? `已切换到 ${variant.name}；该版本字幕由视频自带。` : '已切回页动画版本。');
+  notify(variant ? `已切换到 ${variant.name}；该版本字幕由视频自带，物体框为按页近似位置。` : '已切回页动画版本。');
 }
 $('videoVariant').onchange = () => applyVariant($('videoVariant').value);
+
+function videoFramePageRect() {
+  const stage = document.querySelector('.stage');
+  const page = book?.pages?.[index];
+  if (!stage || !page || !video.videoWidth) return null;
+  const s = stage.getBoundingClientRect(), r = video.getBoundingClientRect();
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return null;
+  const scale = Math.min(r.width / vw, r.height / vh);
+  const frameWidth = vw * scale, frameHeight = vh * scale;
+  const left = r.left - s.left + (r.width - frameWidth) / 2;
+  const top = r.top - s.top + (r.height - frameHeight) / 2;
+  // The renderer letterboxes the page inside the video frame.
+  const pageAspect = page.width_px / page.height_px;
+  const frameAspect = vw / vh;
+  let pageWidth = frameWidth, pageHeight = frameHeight, ox = 0, oy = 0;
+  if (pageAspect > frameAspect) {
+    pageHeight = frameWidth / pageAspect;
+    oy = (frameHeight - pageHeight) / 2;
+  } else {
+    pageWidth = frameHeight * pageAspect;
+    ox = (frameWidth - pageWidth) / 2;
+  }
+  return { left, top, width: frameWidth, height: frameHeight, pageWidth, pageHeight, ox, oy };
+}
+
+function updateVideoObjects() {
+  const layer = $('videoObjects');
+  if (!book || !showVideoObjects || video.hidden || !video.getAttribute('src')) {
+    layer.hidden = true; layer.replaceChildren(); layer.dataset.signature = ''; return;
+  }
+  const page = book.pages[index];
+  const hotspots = page?.hotspots || [];
+  const rect = videoFramePageRect();
+  if (!hotspots.length || !rect) {
+    layer.hidden = true; layer.replaceChildren(); layer.dataset.signature = ''; return;
+  }
+  layer.hidden = false;
+  layer.style.left = `${rect.left}px`;
+  layer.style.top = `${rect.top}px`;
+  layer.style.width = `${rect.width}px`;
+  layer.style.height = `${rect.height}px`;
+
+  const pageInfo = result?.pages?.find(item => item.page_index === page.index);
+  const progress = pageInfo && pageInfo.end_ms > pageInfo.start_ms
+    ? Math.max(0, Math.min(1, (currentMs() - pageInfo.start_ms) / (pageInfo.end_ms - pageInfo.start_ms)))
+    : 0;
+  const camera = (plan?.scenes || []).filter(item => item.page_index === page.index)[0]?.camera || '';
+  let scale = 1.02, tx = 0, ty = 0;
+  if (/推|push/i.test(camera)) { scale = 1 + 0.08 * progress; ty = -0.04 * progress; }
+  else if (/拉|pull/i.test(camera)) { scale = 1 + 0.08 * (1 - progress); ty = 0.04 * progress; }
+  else if (/平移|pan/i.test(camera)) { scale = 1.05; tx = (progress - 0.5) * 0.1; }
+  layer.style.transform = `translate(${tx * 100}%, ${ty * 100}%) scale(${scale})`;
+
+  const signature = `${page.index}:${rect.pageWidth.toFixed(0)}x${rect.pageHeight.toFixed(0)}:${hotspots.map(item => item.hotspot_id).join(',')}`;
+  if (layer.dataset.signature === signature) return;
+  layer.replaceChildren(...hotspots.map(hotspot => {
+    const [x1, y1, x2, y2] = hotspot.bbox_px;
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'videoObject'; button.dataset.label = hotspot.label;
+    button.title = `点击：${hotspot.label}`;
+    const boxWidth = Math.max(44, ((x2 - x1) / page.width_px) * rect.pageWidth);
+    const boxHeight = Math.max(32, ((y2 - y1) / page.height_px) * rect.pageHeight);
+    const centerX = rect.ox + (((x1 + x2) / 2) / page.width_px) * rect.pageWidth;
+    const centerY = rect.oy + (((y1 + y2) / 2) / page.height_px) * rect.pageHeight;
+    button.style.left = `${centerX - boxWidth / 2}px`;
+    button.style.top = `${centerY - boxHeight / 2}px`;
+    button.style.width = `${boxWidth}px`;
+    button.style.height = `${boxHeight}px`;
+    button.onclick = event => {
+      event.stopPropagation();
+      lock(async () => {
+        pause();
+        await answer(request('click', {
+          text: '识别点击对象',
+          click: {
+            x_norm: ((x1 + x2) / 2) / page.width_px,
+            y_norm: ((y1 + y2) / 2) / page.height_px,
+          },
+        }));
+      });
+    };
+    return button;
+  }));
+  layer.dataset.signature = signature;
+}
+$('showVideoObjects').onchange = () => { showVideoObjects = $('showVideoObjects').checked; updateVideoObjects(); };
 async function loadQaCards() {
   qaCards = [];
   if (!book) return;
@@ -310,8 +398,10 @@ $('page').onclick = e => lock(async () => {
 video.ontimeupdate = () => {
   if (!book) return; const ms = currentMs(); if (result?.full_video_path) {
     const p = result.pages.find(p => ms >= p.start_ms && ms < p.end_ms); if (p) { index = book.pages.findIndex(x => x.index === p.page_index); $('pageNumber').textContent = `第 ${index + 1} / ${book.pages.length} 页`; }
-  } if (activeVariant !== 'canonical') { $('subtitle').textContent = ''; return; } const page = result?.pages?.find(p => p.page_index === book.pages[index]?.index); const local = ms - (page?.start_ms || 0); $('subtitle').textContent = (plan?.scenes || []).filter(s => s.page_index === book.pages[index]?.index).flatMap(s => s.subtitles || []).find(s => local >= s.start_ms && local < s.end_ms)?.text || '';
+  } updateVideoObjects(); if (activeVariant !== 'canonical') { $('subtitle').textContent = ''; return; } const page = result?.pages?.find(p => p.page_index === book.pages[index]?.index); const local = ms - (page?.start_ms || 0); $('subtitle').textContent = (plan?.scenes || []).filter(s => s.page_index === book.pages[index]?.index).flatMap(s => s.subtitles || []).find(s => local >= s.start_ms && local < s.end_ms)?.text || '';
 };
+video.addEventListener('loadedmetadata', updateVideoObjects);
+window.addEventListener('resize', updateVideoObjects);
 video.onerror = () => notify('视频加载失败，请检查后端产物文件与媒体路径。');
 $('export').onclick = () => {
   const url = URL.createObjectURL(new Blob([JSON.stringify(turns, null, 2)], { type: 'application/json' })); const a = document.createElement('a'); a.href = url; a.download = 'interaction-results.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);

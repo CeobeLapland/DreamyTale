@@ -72,7 +72,7 @@
 | V-11 | 每页一段 + 整本一条（ARCH §3.6） | `[完成]` 分段与整本都有 | 无 | 前端可按段或整本播 | B/C |
 | V-12 | SRT 字幕（ARCH §3.6） | `[完成]` 六本 `subtitles.srt` | 无 | 字幕可独立加载 | B/C |
 | V-13 | 页间连贯检查（ARCH §3.2 Critic） | `[未做]` | 检查相邻页 caption/角色/场景连续性 | 报告列出不连贯页 | B |
-| V-14 | 视频内动态对象点击（C README） | `[未做]` Scene `objects` 为空 | 物体框随时间轴移动，前端按帧命中 | 视频播放中能点中移动物体 | B/C |
+| V-14 | 视频内动态对象点击（C README） | `[部分]` 播放器按页时间窗把热点叠到视频上，随推拉/平移做近似缩放位移；点击会暂停并返回对象描述 | 真正的 `Scene.objects` 物体跟踪（逐帧 bbox）未做；AI 动画版位置为近似 | 视频播放中能点中移动物体 | B/C |
 | V-15 | 播放器（C） | `[完成]` 视频/逐页/原图/字幕/翻页 | 无 | 浏览器可完整阅读 | C |
 | V-16 | 5 分钟演示视频 | `[未做]` | 见 S0-6 | 见 S0-6 | C |
 
@@ -92,7 +92,7 @@
 | R-8 | 答案 TTS（ARCH §4.2） | `[完成]` `backend/app/answer_tts.py`：edge-tts 合成并缓存到 `derived/audio/answer/`，`answer.audio_path` 返回给播放器；默认仅语音输入启用，`DREAMYTALE_ANSWER_TTS=always` 可让文字回答也有音轨 | 首次合成受网络影响约 2s；卡片答案已预热缓存 | 回答可听、可续播 | B/C |
 | R-9 | 证据展示/点击“依据”（ARCH §5） | `[完成]` 回答带依据 chip；点击翻到证据页并画 bbox 框，文字证据也能用 span 拼出框 | 无 | 答案旁能点“依据” | C |
 | R-10 | 触控万物识别（赛题任务 3） | `[完成]` 文字层 + VLM：中文目标跨语言选页、VLM 出框；同页重叠框按中心点归属；官方 click 28/28 | 脚本外物体仍可能无热点 | 官方 click 目标全命中 | B |
-| R-11 | 视频内动态对象点击 | `[未做]` | 见 V-14 | 见 V-14 | B/C |
+| R-11 | 视频内动态对象点击 | `[部分]` 播放器“视频物体”开关：按当前页热点叠加可点标记，随镜头推拉近似移动；点击暂停并返回对象描述 | 真实逐帧物体跟踪/`Scene.objects` 未做 | 见 V-14 | B/C |
 | R-12 | 运行时 LLM 兜底（ARCH §5 `weak`） | `[完成]` `backend/app/llm_answer.py`；Qwen3.5-9B 本机；证据约束 | 无 | 没卡的问题也能答 | A/B |
 | R-13 | 任意书内问题 | `[部分]` 可回答的问题已带证据；假前提/无依据退回 guide | 需要抽检更多书 | 任意问题有答案或引导 | A/B |
 | R-14 | 多模态对话历史（赛题任务 3、DATA §9.3 Turn） | `[完成]` 每轮写 `data/turns/<date>.jsonl`；刷新后用同一 session 回放 | 图片输入仍未产生 Turn 字段 | 刷新后历史可回放 | A |
@@ -338,6 +338,7 @@
 - 跨语言 seek：`backend/app/page_router.py` 在词面/scene 索引失败时让文本模型从页描述选页，优先复用同一目标的 click 热点页，再选该页最匹配 scene。seek 从 **26/79 提到 66/79**；全量文字回放 **314/328（95.7%）**，qa 116/117 有答案与证据（语义待抽检），必选 86/91。
 - 服务端答案 TTS：edge-tts 合成短答案，缓存到 `derived/audio/answer/<hash>.mp3`，`answer.audio_path` 直接给播放器；默认 `voice` 模式，`DREAMYTALE_ANSWER_TTS=always/off` 可切换。113 条卡片 strong 答案已预热，缓存命中时 TTS 0ms。
 - 低置信 ASR：faster-whisper 输出平均 token 概率；低于 0.45 不进入路由，返回“我听到的是……请再说一遍”，并记录 Turn/Trace；官方短指令实测 0.62–0.82。
+- 视频内物体点击：阅读器新增“视频物体”开关，把当前页热点按时间窗叠到视频上，随推拉/平移做近似缩放位移；点击暂停视频并走 `kind=click`，返回对象描述。已用浏览器实测第 2 页“积木城堡”可点。真实逐帧物体跟踪未做。
 - `/review` 改为跳转 `/reader/#review`，删除独立审核页。
 - 测试：新增 `backend/tests/test_conductor.py`、`tests/test_critic.py`；相关后端测试 38 passed，critic/orchestrator 10 passed。
 

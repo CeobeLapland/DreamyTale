@@ -27,11 +27,13 @@
             <div class="stage"><video id="video" controls playsinline preload="metadata" hidden></video><img id="page"
                     alt="当前绘本页面" hidden>
                 <div id="overlay" aria-hidden="true"></div>
+                <div id="videoObjects" class="videoObjectsLayer" hidden></div>
                 <div id="empty">从左侧选择或上传一本绘本<br><small>生成的视频将在这里播放</small></div>
             </div>
             <p id="subtitle"></p>
             <nav><button id="prev">上一页</button><span id="pageNumber">尚未选择绘本</span><button id="next">下一页</button><button
-                    id="resume">继续故事</button></nav>
+                    id="resume">继续故事</button><label class="videoToggle"><input id="showVideoObjects" type="checkbox"
+                        checked>视频物体</label></nav>
             <p id="notice" role="status" aria-live="polite">连接后端中…</p>
         </section>
         <aside class="panel">
