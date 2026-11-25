@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from backend.app.jobs import JobManager, JobStore
 from backend.app.models import JobStage, JobStatus
@@ -11,6 +12,15 @@ class SuccessfulRunner:
         self.book_id = book_id
         report("scene", 0.4)
         report("video", 0.8)
+
+
+class DegradedRunner:
+    def run(self, book_id: str, report):
+        report("compose", 1.0)
+        return SimpleNamespace(
+            status="degraded",
+            manifest_path="derived/manifest.json",
+        )
 
 
 class FailingRunner:
@@ -40,6 +50,13 @@ class JobManagerTests(unittest.TestCase):
         job = manager.submit("zh-01", background=False)
         self.assertEqual(JobStatus.failed, job.status)
         self.assertEqual("video provider timed out", job.error)
+
+    def test_degraded_runner_sets_status_and_manifest_path(self) -> None:
+        manager = JobManager(self.store, DegradedRunner())
+        job = manager.submit("zh-01", background=False)
+        self.assertEqual(JobStatus.degraded, job.status)
+        self.assertTrue(job.degraded)
+        self.assertEqual("derived/manifest.json", job.manifest_path)
 
     def test_failure_carries_stage_error_code(self) -> None:
         manager = JobManager(self.store, FailingRunner())

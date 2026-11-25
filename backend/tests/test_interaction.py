@@ -1,5 +1,6 @@
 import unittest
 
+from contracts.models import content_hash
 from backend.app.interaction import handle_interaction
 from backend.app.models import (
     AnswerTier,
@@ -36,12 +37,26 @@ class InteractionTests(unittest.TestCase):
         self.assertIsNone(response.answer)
         self.assertIsNone(response.error)
 
-    def test_qa_falls_back_instead_of_faking_an_answer(self) -> None:
+    def test_qa_without_card_guides_instead_of_shrugging(self) -> None:
+        """契约 §6.2：没有答案卡时给引导，不是"没找到"的死胡同。"""
         response = handle_interaction(_request(), self.package)
+
+        self.assertEqual("ok", response.status)
+        self.assertEqual(AnswerTier.guide, response.answer.tier)
+        self.assertEqual("seek", response.action.type.value)
+        # 引导必须三件事齐全：承认、翻页、反问。
+        self.assertIn("没有找到", response.answer.text)
+        self.assertIn("第 1 页", response.answer.text)
+        self.assertIn("？", response.answer.text)
+        self.assertNotIn("抱歉", response.answer.text)
+        self.assertNotIn("无法回答", response.answer.text)
+
+    def test_qa_without_a_book_falls_back(self) -> None:
+        """连书都没有时才真的降级。"""
+        response = handle_interaction(_request(), None)
 
         self.assertEqual("fallback", response.status)
         self.assertEqual(AnswerTier.guide, response.answer.tier)
-        self.assertIn("问答卡", response.answer.text)
         self.assertEqual("qa_runtime_not_configured", response.error.code)
         self.assertFalse(response.error.retryable)
 
@@ -64,6 +79,44 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual("ok", response.status)
         self.assertEqual("highlight", response.action.type.value)
         self.assertEqual(["span-zh-99-001-001"], response.action.span_ids)
+
+    def test_highlight_this_sentence_uses_the_previous_search(self) -> None:
+        """语音说"高亮这句话"时，要接上一轮真正查找的目标。"""
+        session = "sess-coreference"
+        first = handle_interaction(
+            _request(
+                session_id=session,
+                kind=InteractionKind.search,
+                input={"text": "查找“测试”"},
+            ),
+            self.package,
+        )
+        self.assertEqual("ok", first.status)
+
+        second = handle_interaction(
+            _request(
+                session_id=session,
+                kind=InteractionKind.highlight,
+                input={"text": "高亮这句话"},
+            ),
+            self.package,
+        )
+
+        self.assertEqual("ok", second.status)
+        self.assertEqual("highlight", second.action.type.value)
+        self.assertEqual(["span-zh-99-001-001"], second.action.span_ids)
+
+    def test_seek_falls_back_to_the_page_text(self) -> None:
+        """"找到 X"没有场景命中，但 X 在页上：翻到那一页并引用它。"""
+        response = handle_interaction(
+            _request(kind=InteractionKind.seek, input={"text": "找到测试"}),
+            self.package,
+        )
+
+        self.assertEqual("ok", response.status)
+        self.assertEqual("seek", response.action.type.value)
+        self.assertIn("测试", response.answer.text)
+        self.assertTrue(response.answer.evidence)
         self.assertEqual(AnswerTier.quote, response.answer.tier)
         self.assertEqual(1, response.answer.evidence[0].page_index)
 
@@ -99,6 +152,35 @@ class InteractionTests(unittest.TestCase):
 
         self.assertEqual("fallback", response.status)
         self.assertEqual("hotspot_not_resolved", response.error.code)
+
+    def test_click_prefers_the_smallest_overlapping_hotspot(self) -> None:
+        """Visual hotspots overlap: the car inside the movie poster wins."""
+        payload = valid_package()
+        small = {
+            "hotspot_id": "hotspot-small",
+            "page_index": 1,
+            "label": "汽车",
+            "bbox_px": [30, 30, 60, 60],
+            "description": "海报里的小汽车",
+            "source": "vlm",
+            "confidence": 0.6,
+            "version": 1,
+            "status": "active",
+        }
+        small["hash"] = content_hash(small)
+        payload["pages"][0]["hotspots"].append(small)
+        package = book_package_from_dict(payload)
+
+        response = handle_interaction(
+            _request(
+                kind=InteractionKind.click,
+                input={"text": "点一下", "page_index": 1, "click": {"x_px": 40, "y_px": 40}},
+            ),
+            package,
+        )
+
+        self.assertEqual("ok", response.status)
+        self.assertEqual("hotspot-small", response.action.hotspot_id)
 
     def test_auto_kind_routes_by_text(self) -> None:
         response = handle_interaction(

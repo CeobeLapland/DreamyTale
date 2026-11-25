@@ -2,8 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.app.models import QueryKind
+from backend.app.models import ControlAction, QueryKind
 from backend.app.script_parser import (
+    control_action_for,
     parse_script,
     query_set_from_legacy_steps,
     write_query_set,
@@ -133,6 +134,17 @@ class LegacyScriptTests(unittest.TestCase):
         self.assertEqual(QueryKind.seek, query_set.items[1].actions[0].kind)
         self.assertEqual("找到积木城堡", query_set.items[1].actions[0].seek_query)
         self.assertEqual("audio/01.wav", query_set.items[0].audio_path)
+
+
+class ControlRoutingTests(unittest.TestCase):
+    def test_first_control_word_wins(self) -> None:
+        # ASR 偶尔会在短句后面重复词；先说哪个就听哪个。
+        self.assertEqual(ControlAction.play, control_action_for("播放 继续"))
+        self.assertEqual(ControlAction.resume, control_action_for("继续播放"))
+        self.assertEqual(ControlAction.stop, control_action_for("结束播放"))
+
+    def test_exact_english_play(self) -> None:
+        self.assertEqual(ControlAction.play, control_action_for("Play"))
 
 
 if __name__ == "__main__":

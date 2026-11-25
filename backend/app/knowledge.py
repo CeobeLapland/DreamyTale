@@ -7,10 +7,19 @@ from pathlib import Path
 
 from backend.app.models import (
     AnswerTier,
+    Evidence,
     QaAnswers,
     QaCard,
     Status,
 )
+
+
+def preferred_evidence(card: QaCard) -> list[Evidence]:
+    """带 bbox/span 的证据排前面，前端默认用第一条定位与高亮。"""
+    return sorted(
+        card.evidence,
+        key=lambda item: (item.bbox_px is None, item.span_id is None),
+    )
 
 
 @dataclass(frozen=True, slots=True)

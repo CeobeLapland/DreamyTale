@@ -11,9 +11,11 @@ abandoned/
 # 公开仓库不提交原书正文、命题组脚本和媒体；本地生成、网盘共享，
 # 答辩材料单独脱敏打包。契约见 docs/DATA_CONTRACT.md
 data/books/
+data/remote/
 data/traces/
 data/turns/
 data/cache/
+runs/
 
 # ---- 运行 ----
 __pycache__/
@@ -22,6 +24,7 @@ __pycache__/
 node_modules/
 .env
 .env.local
+.trae-html-share-packages/
 
 # ---- 系统 ----
 .DS_Store

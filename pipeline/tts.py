@@ -29,6 +29,11 @@ def _voice_for(language: str) -> str:
     return VOICES["en"] if str(language).lower().startswith("en") else VOICES["zh"]
 
 
+def voice_for(language: str) -> str:
+    """Voice used for both narration and runtime answers."""
+    return _voice_for(language)
+
+
 def edge_tts_available() -> bool:
     try:
         import edge_tts  # noqa: F401

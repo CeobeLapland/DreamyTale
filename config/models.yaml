@@ -42,11 +42,15 @@ vlm:
 
 # Future stages use the same pattern:
 # tts:   { provider: edge_tts }
-# asr:   { provider: faster_whisper }
 i2v:
+  # 字节系图生视频（火山方舟 v3 / 豆包 Seedance 等）。模型 ID 以控制台为准，
+  # 用 ARK_MODEL_ID 传，不写死在仓库里。
+  # 没配 key/model 时 video 阶段自动退回页动画，并在 manifest 里标降级。
   provider: volcengine_ark
   fallback: [null]
 
+  # 0 = 不启用；100 = 所有场景都走 I2V（成本/耗时最高）。
+  # 演示建议先设 2–4 个 hero scene，或在 scene_ids 里点名。
   max_scenes: 100
   scene_ids: []
 
@@ -76,3 +80,22 @@ llm:
     max_tokens: 900
     temperature: 0.2
     reasoning_effort: none
+
+# Speech input. The model runs locally; CUDA is used when the runtime DLLs are
+# present (LM Studio ships cuBLAS 12) and the provider falls back to CPU int8.
+# `language: auto` matters: the official scripts mix Chinese controls with
+# English questions, even inside an English book.
+asr:
+  provider: faster_whisper
+  fallback: [null]
+  # 低于这个平均 token 概率就不猜，改成'我听到的是……，请再说一遍'。
+  confirm_below: 0.45
+  faster_whisper:
+    model: D:/LLM/models/faster-whisper/small
+    device: auto
+    compute_type: auto
+    cpu_threads: 4
+    beam_size: 5
+    # The clips are short commands; trimming silence only loses words.
+    vad_filter: false
+    language: auto

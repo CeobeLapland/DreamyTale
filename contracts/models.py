@@ -928,6 +928,9 @@ class InteractionResponse(_Base):
     kind: InteractionKind
     action: InteractionAction = Field(default_factory=InteractionAction)
     answer: AnswerPayload | None = None
+    # 语音输入时服务端实际听到的文本；文字输入为 null。
+    # 前端可显示"听到：……"，评测也靠它区分"没听清"和"没答上"。
+    transcript: str | None = None
     latency: LatencyBreakdown = Field(default_factory=LatencyBreakdown)
     status: Literal["ok", "fallback", "error"] = "ok"
     error: ErrorInfo | None = None
@@ -1072,11 +1075,16 @@ class EvalResult(_Base):
     status: str
     verdict: Literal["ok", "wrong", "miss", "fallback"]
     answer_text: str | None = None
+    # 回答档位（契约 §9.2）：strong / weak / quote / guide。
+    # 引导（guide）不是答案，评测按档位分桶时不能混进正确率。
+    tier: str | None = None
     action: InteractionAction | None = None
     scene_id: str | None = None
     evidence: list[Evidence] = Field(default_factory=list)
     latency_ms: int = Field(ge=0)
     asr_text: str | None = None
+    # 服务端实际返回的 kind；用来统计意图分类准确率（可能不等于期望 kind）。
+    served_kind: InteractionKind | None = None
     notes: str | None = None
 
 

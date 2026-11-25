@@ -11,8 +11,11 @@ import json
 import time
 import uuid
 from pathlib import Path
+from threading import Lock
 
+from contracts.retrieval import extract_target as _extract_target
 from contracts.retrieval import find_scene as _find_scene
+from contracts.retrieval import overlap_score as _overlap_score
 from contracts.retrieval import search_index as _search_index
 
 from backend.app.models import (
@@ -33,10 +36,50 @@ from backend.app.models import (
     QueryKind,
     TextSpan,
 )
+from backend.app.page_router import route_page
 from backend.app.script_parser import classify_instruction, control_action_for
-from backend.app.knowledge import find_qa_card, load_qa_cards
+from backend.app.guide import build_guide_answer, page_start_times
+from backend.app.knowledge import find_qa_card, load_qa_cards, preferred_evidence
+from backend.app.llm_answer import build_llm_answer
+from pipeline.annotations import (
+    active_annotations,
+    apply_annotations_to_cards,
+    apply_annotations_to_package,
+)
 
 INDEX_DIR = Path("derived") / "index"
+
+# 一轮会话里"这句话/它"指代的对象。契约 §9.1 的 session_id 就是为这个存在的。
+# 只放在内存里：进程重启后丢失比写错好，前端下次会重新说出目标。
+_SESSION_TARGETS: dict[str, str] = {}
+_SESSION_LOCK = Lock()
+_SESSION_LIMIT = 512
+
+_PRONOUNS = ("这句话", "这一句", "这句", "那句话", "那句話", "this sentence", "that sentence")
+_PRONOUN_WORDS = {"这句话", "这句", "那个", "这个", "它", "this", "that"}
+
+
+def _last_target(session_id: str) -> str | None:
+    with _SESSION_LOCK:
+        return _SESSION_TARGETS.get(session_id)
+
+
+def _remember_target(session_id: str, target: str) -> None:
+    if not target:
+        return
+    with _SESSION_LOCK:
+        if len(_SESSION_TARGETS) >= _SESSION_LIMIT:
+            _SESSION_TARGETS.clear()
+        _SESSION_TARGETS[session_id] = target
+
+
+def _resolve_target(session_id: str, text: str) -> str:
+    """"高亮这句话" -> 上一轮真正查找的那段文字。"""
+    target = _extract_target(text) or text
+    points_back = any(phrase in (text or "").lower() for phrase in _PRONOUNS)
+    if not target or points_back or target.lower() in _PRONOUN_WORDS:
+        return _last_target(session_id) or target
+    return target
 
 
 def _load_index(package_root: Path | None, name: str) -> dict:
@@ -99,6 +142,48 @@ def _find_text(
     return hits
 
 
+def _hotspot_page(package: BookPackage, target: str) -> int | None:
+    needle = _normalize(target)
+    if not needle:
+        return None
+    for page in package.pages:
+        for hotspot in page.hotspots:
+            label = _normalize(hotspot.label)
+            if label and (needle in label or label in needle):
+                return page.index
+    return None
+
+
+def _scene_on_page(
+    scene_index: dict,
+    page_index: int,
+    target: str,
+) -> dict | None:
+    """Pick the scene on the routed page that best matches the target."""
+    scenes = [
+        scene
+        for scene in scene_index.get("scenes", []) or []
+        if int(scene.get("page_index") or 0) == page_index
+    ]
+    if not scenes:
+        return None
+    needle = _normalize(target)
+
+    def score(scene: dict) -> float:
+        haystack = _normalize(
+            " ".join(
+                [
+                    str(scene.get("caption") or ""),
+                    " ".join(str(item) for item in scene.get("aliases") or []),
+                    str(scene.get("text") or ""),
+                ]
+            )
+        )
+        return _overlap_score(needle, haystack)
+
+    return max(scenes, key=score)
+
+
 def _click_target(
     package: BookPackage,
     page_index: int | None,
@@ -109,20 +194,32 @@ def _click_target(
     page = next((item for item in package.pages if item.index == page_index), None)
     if page is None:
         return None
+    if click.x_px is not None and click.y_px is not None:
+        click_x, click_y = float(click.x_px), float(click.y_px)
+    elif click.x_norm is not None and click.y_norm is not None:
+        click_x = click.x_norm * (page.width_px or 1)
+        click_y = click.y_norm * (page.height_px or 1)
+    else:
+        return None
+
+    matches: list[Hotspot] = []
     for hotspot in page.hotspots:
         x1, y1, x2, y2 = hotspot.bbox_px
-        if click.x_px is not None and click.y_px is not None:
-            if x1 <= click.x_px < x2 and y1 <= click.y_px < y2:
-                return hotspot
-            continue
-        if click.x_norm is not None and click.y_norm is not None:
-            width = page.width_px or 1
-            height = page.height_px or 1
-            x_px = click.x_norm * width
-            y_px = click.y_norm * height
-            if x1 <= x_px < x2 and y1 <= y_px < y2:
-                return hotspot
-    return None
+        if x1 <= click_x < x2 and y1 <= click_y < y2:
+            matches.append(hotspot)
+    if not matches:
+        return None
+
+    # Visual hotspots can overlap ("car" inside a "movie poster"). The click
+    # belongs to the object whose centre is closest; area only breaks ties.
+    def _rank(item: Hotspot) -> tuple[float, int]:
+        x1, y1, x2, y2 = item.bbox_px
+        dx = (x1 + x2) / 2 - click_x
+        dy = (y1 + y2) / 2 - click_y
+        area = (x2 - x1) * (y2 - y1)
+        return (dx * dx + dy * dy, area)
+
+    return min(matches, key=_rank)
 
 
 def _fallback(
@@ -192,6 +289,17 @@ def handle_interaction(
     # 客户端可以自带 request_id 便于前端关联；服务端不据此做去重或幂等。
     request_id = request.request_id or f"req-{uuid.uuid4().hex[:12]}"
 
+    # Human corrections are an overlay: the auto BookPackage on disk is never
+    # edited. Applied before any click/search/qa reads the package.
+    annotations: dict = {}
+    if package is not None and package_root is not None:
+        annotations = active_annotations(package.book_id, package_root)
+        if annotations:
+            package = apply_annotations_to_package(
+                package, annotations, package_root=package_root
+            )
+
+    route_started = time.perf_counter()
     kind = request.kind
     text = (request.input.text or "").strip()
     if kind is InteractionKind.auto:
@@ -204,9 +312,11 @@ def handle_interaction(
                 total_ms=int((time.perf_counter() - started) * 1000),
                 message="只有语音输入时还没有接入语音识别，无法判断意图。",
             )
-        kind = _interaction_kind(classify_instruction(text))
+        kind = interaction_kind_for(classify_instruction(text))
 
-    route_started = time.perf_counter()
+    # Routing ends here; answer/search latency belongs to `retrieve`/`generate`,
+    # not to `route`. Measuring it at return time would double count the model.
+    route_ms = int((time.perf_counter() - route_started) * 1000)
 
     if kind is InteractionKind.control:
         control = _control_action(text)
@@ -215,7 +325,7 @@ def handle_interaction(
                 request,
                 kind,
                 request_id=request_id,
-                route_ms=int((time.perf_counter() - route_started) * 1000),
+                route_ms=route_ms,
                 total_ms=int((time.perf_counter() - started) * 1000),
             )
         return _response(
@@ -225,14 +335,17 @@ def handle_interaction(
             action=InteractionAction(type=control),
             answer=None,
             status="ok",
-            route_ms=int((time.perf_counter() - route_started) * 1000),
+            route_ms=route_ms,
             total_ms=int((time.perf_counter() - started) * 1000),
         )
 
     if kind in {InteractionKind.search, InteractionKind.highlight}:
-        target = text
+        # The player sends the whole utterance ("高亮文字“bats”"); the service
+        # needs the target itself, otherwise it searches for the sentence.
+        target = _resolve_target(request.session_id, text)
         entries = _search_index(_load_index(package_root, "search_index.json"), target)
         if entries:
+            _remember_target(request.session_id, target)
             evidence = [
                 Evidence(
                     page_index=int(entry.get("page_index") or 0),
@@ -261,12 +374,13 @@ def handle_interaction(
                     time_ms=entries[0].get("start_ms"),
                 ),
                 status="ok",
-                route_ms=int((time.perf_counter() - route_started) * 1000),
+                route_ms=route_ms,
                 total_ms=int((time.perf_counter() - started) * 1000),
             )
         if package is not None:
             hits = _find_text(package, target)
             if hits:
+                _remember_target(request.session_id, target)
                 page_index, spans, quote = hits[0]
                 span_ids = [span.span_id for span in spans]
                 evidence = [
@@ -292,28 +406,57 @@ def handle_interaction(
                         time_ms=None,
                     ),
                     status="ok",
-                    route_ms=int((time.perf_counter() - route_started) * 1000),
+                    route_ms=route_ms,
                     total_ms=int((time.perf_counter() - started) * 1000),
                 )
         return _fallback(
             request,
             kind,
             request_id=request_id,
-            route_ms=int((time.perf_counter() - route_started) * 1000),
+            route_ms=route_ms,
             total_ms=int((time.perf_counter() - started) * 1000),
         )
 
     if kind is InteractionKind.seek:
-        scene = _find_scene(_load_index(package_root, "scene_index.json"), text)
+        scene_index = _load_index(package_root, "scene_index.json")
+        target = _extract_target(text) or text
+        scene = None
+        if package is not None and target:
+            # The same target already produced a clickable hotspot. Its page is
+            # the best location we have, and it keeps seek/click consistent.
+            hotspot_page = _hotspot_page(package, target)
+            if hotspot_page is not None:
+                scene = _scene_on_page(scene_index, hotspot_page, target)
+        if scene is None:
+            scene = _find_scene(scene_index, text)
+        if scene is None and target and target != text:
+            # 语音没有引号："找到还不倒" 里的 "还不倒" 可能是文字而不是画面。
+            # 用去掉指令词后的短目标再试一次，不额外发明内容。
+            scene = _find_scene(scene_index, target)
+        semantic_ms = 0
+        if scene is None and package is not None:
+            # 中文 seek 对英文 caption：词面必然失配。让文本模型从每页描述里
+            # 选页，再在该页 scene 里选最匹配的一段；选不到就继续降级。
+            route_started = time.perf_counter()
+            page_index = route_page(package, package_root, target)
+            semantic_ms = int((time.perf_counter() - route_started) * 1000)
+            if page_index is not None:
+                scene = _scene_on_page(scene_index, page_index, target)
         if scene:
-            return _response(
+            # Scene.start_ms 是相对页面的，播放器要的是全书绝对时间。
+            # 不换算的话每次定位都落在第 0 毫秒，也就是第一页。
+            page_start = page_start_times(package_root).get(
+                int(scene.get("page_index") or 0), 0
+            )
+            seek_ms = page_start + int(scene.get("start_ms") or 0)
+            response = _response(
                 request,
                 kind,
                 request_id=request_id,
                 action=InteractionAction(
                     type=ActionType.seek,
                     scene_id=str(scene.get("scene_id") or ""),
-                    time_ms=int(scene.get("start_ms") or 0),
+                    time_ms=seek_ms,
                 ),
                 answer=AnswerPayload(
                     text=str(scene.get("caption") or ""),
@@ -326,17 +469,54 @@ def handle_interaction(
                         )
                     ],
                     scene_id=str(scene.get("scene_id") or ""),
-                    time_ms=int(scene.get("start_ms") or 0),
+                    time_ms=seek_ms,
                 ),
                 status="ok",
-                route_ms=int((time.perf_counter() - route_started) * 1000),
+                route_ms=route_ms,
                 total_ms=int((time.perf_counter() - started) * 1000),
             )
+            if semantic_ms:
+                response.latency.retrieve = semantic_ms
+            return response
+
+        # 场景索引没命中，但这段文字确实在书里：翻到那一页并引用它。
+        # 这仍然不是"猜一页"——页码来自文字命中。
+        target = _extract_target(text) or text
+        if package is not None and target:
+            hits = _find_text(package, target)
+            if hits:
+                page_index, spans, quote = hits[0]
+                seek_ms = page_start_times(package_root).get(page_index, 0)
+                evidence = [
+                    Evidence(
+                        page_index=page_index,
+                        bbox_px=tuple(span.bbox_px),
+                        span_id=span.span_id,
+                        quote=span.text,
+                    )
+                    for span in spans[:3]
+                ] or [Evidence(page_index=page_index, quote=quote)]
+                return _response(
+                    request,
+                    kind,
+                    request_id=request_id,
+                    action=InteractionAction(type=ActionType.seek, time_ms=seek_ms),
+                    answer=AnswerPayload(
+                        text=quote,
+                        language=package.language,
+                        tier=AnswerTier.quote,
+                        evidence=evidence,
+                        time_ms=seek_ms,
+                    ),
+                    status="ok",
+                    route_ms=route_ms,
+                    total_ms=int((time.perf_counter() - started) * 1000),
+                )
         return _fallback(
             request,
             kind,
             request_id=request_id,
-            route_ms=int((time.perf_counter() - route_started) * 1000),
+            route_ms=route_ms,
             total_ms=int((time.perf_counter() - started) * 1000),
         )
 
@@ -350,7 +530,7 @@ def handle_interaction(
                 request,
                 kind,
                 request_id=request_id,
-                route_ms=int((time.perf_counter() - route_started) * 1000),
+                route_ms=route_ms,
                 total_ms=int((time.perf_counter() - started) * 1000),
             )
         return _response(
@@ -371,13 +551,20 @@ def handle_interaction(
                 ],
             ),
             status="ok",
-            route_ms=int((time.perf_counter() - route_started) * 1000),
+            route_ms=route_ms,
             total_ms=int((time.perf_counter() - started) * 1000),
         )
 
     if kind is InteractionKind.qa:
         if package_root is not None and text:
             cards = load_qa_cards(package_root)
+            if annotations and package is not None:
+                cards = apply_annotations_to_cards(
+                    cards,
+                    annotations,
+                    book_id=package.book_id,
+                    package_root=package_root,
+                )
             match = find_qa_card(cards, text, request.input.language)
             if match is not None:
                 card = match.card
@@ -397,14 +584,83 @@ def handle_interaction(
                         text=match.answer,
                         language=request.input.language,
                         tier=match.tier,
-                        evidence=list(card.evidence),
+                        evidence=preferred_evidence(card),
                         scene_id=scene_id,
                         time_ms=time_ms,
                     ),
                     status="ok",
-                    route_ms=int(
-                        (time.perf_counter() - route_started) * 1000
+                    route_ms=route_ms,
+                    total_ms=int(
+                        (time.perf_counter() - started) * 1000
                     ),
+                )
+
+        # 没有命中卡片时，先让运行时 LLM 只依据书内上下文试答一次。
+        # 答不上（或没有模型）再退回 guide；不允许编造。
+        if package is not None and package_root is not None and text:
+            llm_answer = build_llm_answer(
+                package,
+                package_root,
+                text,
+                request.input.language or package.language,
+            )
+            if llm_answer is not None:
+                response = _response(
+                    request,
+                    kind,
+                    request_id=request_id,
+                    action=InteractionAction(
+                        type=ActionType.seek,
+                        scene_id=llm_answer.scene_id,
+                        time_ms=llm_answer.time_ms,
+                    ),
+                    answer=AnswerPayload(
+                        text=llm_answer.text,
+                        language=request.input.language or package.language,
+                        tier=AnswerTier.weak,
+                        evidence=list(llm_answer.evidence),
+                        scene_id=llm_answer.scene_id,
+                        time_ms=llm_answer.time_ms,
+                    ),
+                    status="ok",
+                    route_ms=route_ms,
+                    total_ms=int((time.perf_counter() - started) * 1000),
+                )
+                response.latency.generate = llm_answer.latency_ms
+                return response
+
+        # 没有答案卡：按契约 §6.2 给引导，而不是一句"没找到"。
+        # 引导必须三件事齐全——承认、翻页、反问——并且引用书里的原句。
+        # 停在孩子正在看的那一页：翻到哪一页是 pipeline 在卡里定好的，
+        # 运行时不该再去猜。
+        if package is not None and text:
+            guide = build_guide_answer(
+                package,
+                package_root or Path("."),
+                text,
+                request.input.language or package.language,
+                request.input.page_index or request.context.last_page_index,
+            )
+            if guide is not None:
+                return _response(
+                    request,
+                    kind,
+                    request_id=request_id,
+                    action=InteractionAction(
+                        type=ActionType.seek,
+                        scene_id=guide.scene_id,
+                        time_ms=guide.time_ms,
+                    ),
+                    answer=AnswerPayload(
+                        text=guide.text,
+                        language=request.input.language or package.language,
+                        tier=AnswerTier.guide,
+                        evidence=list(guide.evidence),
+                        scene_id=guide.scene_id,
+                        time_ms=guide.time_ms,
+                    ),
+                    status="ok",
+                    route_ms=route_ms,
                     total_ms=int(
                         (time.perf_counter() - started) * 1000
                     ),
@@ -414,7 +670,7 @@ def handle_interaction(
             request,
             kind,
             request_id=request_id,
-            route_ms=int((time.perf_counter() - route_started) * 1000),
+            route_ms=route_ms,
             total_ms=int((time.perf_counter() - started) * 1000),
             message="没有找到对应的问答卡；可以换一种问法或先查看相关画面。",
         )
@@ -423,12 +679,12 @@ def handle_interaction(
         request,
         kind,
         request_id=request_id,
-        route_ms=int((time.perf_counter() - route_started) * 1000),
+        route_ms=route_ms,
         total_ms=int((time.perf_counter() - started) * 1000),
     )
 
 
-def _interaction_kind(kind: QueryKind) -> InteractionKind:
+def interaction_kind_for(kind: QueryKind) -> InteractionKind:
     mapping = {
         QueryKind.control: InteractionKind.control,
         QueryKind.seek: InteractionKind.seek,

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import DATA, BookSpec
-from .video import _ascii_temp_root, _ascii_video_input
+from .video import _ascii_temp_root, _ascii_video_input, ensure_h264
 
 
 def render_final(spec: BookSpec) -> dict[str, Any]:
@@ -113,6 +113,8 @@ def render_final(spec: BookSpec) -> dict[str, Any]:
             audio_events,
             page_bounds,
         )
+        # The subtitle pass writes mp4v; browsers need H.264.
+        ensure_h264(final_temp)
         final_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(final_temp, final_path)
         _update_generation_result(
@@ -120,6 +122,10 @@ def render_final(spec: BookSpec) -> dict[str, Any]:
             final_path,
             srt_path,
             book_root,
+            audio_paths=[
+                str(path.relative_to(book_root)).replace("\\", "/")
+                for _, _, path in audio_events
+            ],
         )
 
         return {
@@ -312,6 +318,7 @@ def _update_generation_result(
     final_video: Path,
     subtitle_path: Path,
     book_root: Path,
+    audio_paths: list[str] | None = None,
 ) -> None:
     if not path.is_file():
         return
@@ -322,6 +329,7 @@ def _update_generation_result(
     data["subtitle_paths"] = [
         str(subtitle_path.relative_to(book_root)).replace("\\", "/")
     ]
+    data["audio_paths"] = list(audio_paths or [])
     path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2),
         encoding="utf-8",

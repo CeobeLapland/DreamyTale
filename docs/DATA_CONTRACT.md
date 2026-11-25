@@ -64,15 +64,23 @@ data/books/<book_id>/
     audio/answer/card-zh-01-001-zh.wav
     index/vectors.jsonl
     index/meta.json
-    review/queue.jsonl               # ReviewItem
-    review/annotations.jsonl         # Annotation
+    review/queue.jsonl               # ReviewItem（系统生成）
     manifest.json                    # GenerationManifest
     capability.json                  # CapabilityReport
+  manual/annotations.jsonl           # Annotation（人工输入，append-only）
   query_sets/zh-01-script-v1.json     # QuerySet（可选）
   assets/thumbnails/...
 ```
 
 Trace 落 `data/traces/<yyyy-mm-dd>/`，Turn 落 `data/turns/<yyyy-mm-dd>.jsonl`；与单书包分开，便于跨书审计。
+
+`derived/video/variants.json` 是播放器侧的备选成片索引，不属于 v2 契约模型：
+
+```json
+{"variants":[{"id":"i2v","name":"AI 动画版","video_path":"derived/video/final-i2v.mp4","model":"external_api","note":"外部 API 生成","pages":[{"page_index":1,"start_ms":0,"end_ms":6000}]}]}
+```
+
+没有这个文件时，播放器只使用 `generation_result.full_video_path` 的 canonical 成片。
 
 - 包根为 `data/books/<book_id>/`；所有路径相对于它。
 - `source/` 保存原始快照，不入 Git；`derived/` 中的媒体缓存不入 Git。
@@ -898,6 +906,7 @@ VLM 把页图读成文字后的产物。对无字绘本是唯一的内容来源�
     "time_ms": 2400
   },
   "latency": { "asr": 420, "route": 8, "retrieve": 42, "generate": 0, "tts": 180, "total": 650 },
+  "transcript": "他们在一起搭什么？",
   "status": "ok",
   "error": null
 }
@@ -906,6 +915,7 @@ VLM 把页图读成文字后的产物。对无字绘本是唯一的内容来源�
 `action.type`：`play` / `pause` / `resume` / `stop` / `seek` / `highlight` / `show_card` / `none`。
 `answer.tier`：`strong` / `weak` / `quote` / `guide`。
 `status`：`ok` / `fallback` / `error`；`error` 为 `{code, message, retryable}`。
+`transcript`：语音输入时服务端实际听到的文本；文字输入为 `null`。它让前端能显示"听到：……"，也让评测区分"没听清"和"没答上"。
 
 `latency` 的统计口径：用户语音结束 → TTS 首音开始；无法拆分的阶段填 `null`。报告只记 p50/p95，不记平均值。
 

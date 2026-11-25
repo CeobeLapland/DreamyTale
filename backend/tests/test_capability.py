@@ -36,7 +36,6 @@ class CapabilityReportTests(unittest.TestCase):
         joined = " ".join(report.limitations)
         self.assertIn("场景时间轴", joined)
         self.assertIn("问答卡", joined)
-        self.assertIn("语音识别", joined)
 
     def test_marks_low_confidence_items_for_review(self) -> None:
         package = valid_package()

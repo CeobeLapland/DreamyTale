@@ -1,1 +1,114 @@
-<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/reader/favicon.svg"><title>纸书智伴 · 阅读空间</title><link rel="stylesheet" href="style.css"><body><header><strong>纸书智伴 <small>DreamyTale</small></strong><span>让每一本书，都有回应</span></header><main><aside><h2>我的绘本</h2><button id="refresh">刷新书架</button><select id="books" aria-label="选择绘本"><option value="">请选择绘本</option></select><hr><h3>上传绘本</h3><p>支持 PDF 绘本，或包含 PDF 的 ZIP。</p><input id="archive" type="file" accept=".pdf,.zip" hidden><button id="upload" type="button">上传绘本</button><button id="generate">生成视频</button><p id="job" role="status"></p></aside><section class="reader"><p class="eyebrow">一起读，一起发现</p><h1 id="title">欢迎来到故事世界</h1><div class="stage"><video id="video" controls playsinline preload="metadata" hidden></video><img id="page" alt="当前绘本页面" hidden><div id="empty">从左侧选择或上传一本绘本<br><small>生成的视频将在这里播放</small></div></div><p id="subtitle"></p><nav><button id="prev">上一页</button><span id="pageNumber">尚未选择绘本</span><button id="next">下一页</button><button id="resume">继续故事</button></nav><p id="notice" role="status" aria-live="polite">连接后端中…</p></section><aside class="chat"><h2>问问故事</h2><p>想知道什么？暂停故事，问一问。</p><div id="messages" aria-live="polite"></div><audio id="reply" controls controlslist="nodownload" hidden></audio><form id="question"><input id="text" placeholder="比如：它为什么这么做？" aria-label="问题" required><button>发送</button></form><button id="record">开始录音</button><button id="uploadAudio" type="button">上传语音</button><input id="audioFile" type="file" accept="audio/*,.wav,.mp3,.webm,.m4a,.ogg" hidden><label><input id="speak" type="checkbox" checked>自动朗读文字回答</label><button id="export">导出本次交互记录</button></aside></main><dialog id="uploadDialog" aria-labelledby="uploadTitle"><h2 id="uploadTitle">选择要导入的绘本</h2><p id="selectedArchive"></p><p>检测到多个 PDF，请选择本次要导入的一本。</p><label for="key">ZIP 中的绘本</label><select id="key"></select><div class="dialogActions"><button id="cancelUpload" type="button">取消</button><button id="confirmUpload" type="button">导入这本绘本</button></div></dialog><script type="module" src="src/app.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/reader/favicon.svg">
+<title>纸书智伴 · 阅读空间</title>
+<link rel="stylesheet" href="style.css">
+
+<body>
+    <header><strong>纸书智伴 <small>DreamyTale</small></strong><span>让每一本书，都有回应</span></header>
+    <main>
+        <aside class="shelf">
+            <h2>我的绘本</h2><button id="refresh">刷新书架</button><select id="books" aria-label="选择绘本">
+                <option value="">请选择绘本</option>
+            </select>
+            <hr>
+            <h3>上传绘本</h3>
+            <p>支持 PDF 绘本，或包含 PDF 的 ZIP。</p><input id="archive" type="file" accept=".pdf,.zip" hidden><button id="upload"
+                type="button">上传绘本</button><button id="generate">生成视频</button>
+            <p id="job" role="status"></p>
+        </aside>
+        <section class="reader">
+            <p class="eyebrow">一起读，一起发现</p>
+            <h1 id="title">欢迎来到故事世界</h1>
+            <div class="variantRow" id="variantRow" hidden><label for="videoVariant">视频版本</label><select id="videoVariant"></select><span
+                    id="variantNote"></span></div>
+            <div class="stage"><video id="video" controls playsinline preload="metadata" hidden></video><img id="page"
+                    alt="当前绘本页面" hidden>
+                <div id="overlay" aria-hidden="true"></div>
+                <div id="videoObjects" class="videoObjectsLayer" hidden></div>
+                <div id="empty">从左侧选择或上传一本绘本<br><small>生成的视频将在这里播放</small></div>
+            </div>
+            <p id="subtitle"></p>
+            <nav><button id="prev">上一页</button><span id="pageNumber">尚未选择绘本</span><button id="next">下一页</button><button
+                    id="resume">继续故事</button><label class="videoToggle"><input id="showVideoObjects" type="checkbox"
+                        checked>视频物体</label></nav>
+            <p id="notice" role="status" aria-live="polite">连接后端中…</p>
+        </section>
+        <aside class="panel">
+            <div class="tabs" role="tablist" aria-label="工作区">
+                <button type="button" class="tab active" data-tab="chat" role="tab">对话</button>
+                <button type="button" class="tab" data-tab="review" role="tab">审核修正</button>
+                <button type="button" class="tab" data-tab="trace" role="tab">生成链路</button>
+                <button type="button" class="tab" data-tab="eval" role="tab">评测</button>
+            </div>
+
+            <section id="tab-chat" class="tabPanel" role="tabpanel">
+                <p class="hint">想知道什么？暂停故事，问一问。</p>
+                <div id="messages" aria-live="polite"></div><audio id="reply" controls controlslist="nodownload"
+                    hidden></audio>
+                <form id="question"><input id="text" placeholder="比如：它为什么这么做？" aria-label="问题" required><button>发送</button>
+                </form>
+                <div class="rowButtons"><button id="record">开始录音</button><button id="uploadAudio" type="button">上传语音</button></div>
+                <input id="audioFile" type="file" accept="audio/*,.wav,.mp3,.webm,.m4a,.ogg" hidden><label><input id="speak"
+                        type="checkbox" checked>自动朗读文字回答</label><button id="export">导出本次交互记录</button>
+            </section>
+
+            <section id="tab-review" class="tabPanel" role="tabpanel" hidden>
+                <p class="hint">当前页的自动结果；修正写入 <code>manual/annotations.jsonl</code>，不改自动产物。</p>
+                <div id="reviewTargets"></div>
+                <div id="reviewEditor" hidden>
+                    <p><span class="badge" id="reviewTarget"></span></p>
+                    <label for="reviewField">字段</label><select id="reviewField"></select>
+                    <label for="reviewCurrent">当前自动值</label><textarea id="reviewCurrent" readonly></textarea>
+                    <label for="reviewValue">新值（bbox/数组用 JSON）</label><textarea id="reviewValue"></textarea>
+                    <div class="row">
+                        <div><label for="reviewReviewer">审核人</label><input id="reviewReviewer" type="text" value="B"></div>
+                        <div><label for="reviewReason">原因</label><input id="reviewReason" type="text" placeholder="可选"></div>
+                    </div>
+                    <div class="rowButtons"><button class="primary" id="reviewSave">保存修正</button><button id="reviewCancel">取消</button></div>
+                </div>
+                <h3>已有修正</h3>
+                <div id="annotationList" class="scroll small"></div>
+                <h3>冲突队列</h3>
+                <div id="reviewList" class="scroll small"></div>
+                <details>
+                    <summary>高级：按 JSON 批量修正</summary>
+                    <textarea id="reviewBatch" placeholder='[{"target_type":"hotspot","target_id":"hotspot-...","field":"description","value":"...","reviewer":"B"}]'></textarea>
+                    <button id="reviewBatchSave">批量提交</button>
+                </details>
+            </section>
+
+            <section id="tab-trace" class="tabPanel" role="tabpanel" hidden>
+                <h3>模型与工具</h3>
+                <div id="providerList" class="scroll small"></div>
+                <h3>在线工具</h3>
+                <div id="toolList" class="scroll small"></div>
+                <h3>本轮工具调用</h3>
+                <div id="traceList" class="scroll"></div>
+                <h3>生成阶段</h3>
+                <div id="manifestList" class="scroll small"></div>
+                <h3>Critic 检查</h3>
+                <div id="criticList" class="scroll small"></div>
+            </section>
+
+            <section id="tab-eval" class="tabPanel" role="tabpanel" hidden>
+                <h3>能力报告</h3>
+                <div id="capability" class="scroll small"></div>
+                <h3>最近评测</h3>
+                <div id="evalRun" class="scroll small"></div>
+            </section>
+        </aside>
+    </main>
+    <dialog id="uploadDialog" aria-labelledby="uploadTitle">
+        <h2 id="uploadTitle">选择要导入的绘本</h2>
+        <p id="selectedArchive"></p>
+        <p>检测到多个 PDF，请选择本次要导入的一本。</p><label for="key">ZIP 中的绘本</label><select id="key"></select>
+        <div class="dialogActions"><button id="cancelUpload" type="button">取消</button><button id="confirmUpload"
+                type="button">导入这本绘本</button></div>
+    </dialog>
+    <script type="module" src="src/app.js"></script>
+</body>
+
+</html>
