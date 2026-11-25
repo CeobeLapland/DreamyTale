@@ -57,6 +57,23 @@ def _scale_for(width: int, height: int, max_side: int) -> float:
     return max_side / longest if longest else 1.0
 
 
+def _overlap_ratio(
+    first: tuple[int, int, int, int],
+    second: tuple[int, int, int, int],
+) -> float:
+    """Overlap divided by the smaller box's area; 0 means disjoint."""
+    x1 = max(first[0], second[0])
+    y1 = max(first[1], second[1])
+    x2 = min(first[2], second[2])
+    y2 = min(first[3], second[3])
+    if x2 <= x1 or y2 <= y1:
+        return 0.0
+    intersection = (x2 - x1) * (y2 - y1)
+    first_area = max(1, (first[2] - first[0]) * (first[3] - first[1]))
+    second_area = max(1, (second[2] - second[0]) * (second[3] - second[1]))
+    return intersection / min(first_area, second_area)
+
+
 def _text_hit(target: str, pages: list[dict[str, Any]]) -> tuple[int, list[int]] | None:
     """Find the target in the page text layer, with its box when there is one."""
     needle = normalize(target)
@@ -302,7 +319,11 @@ def build_hotspots(
             page_index=page_index,
             label=target,
             bbox_px=tuple(bbox),
-            description=f"第 {number} 步要点击的目标：{target}",
+            description=(
+                f"You tapped “{target}”."
+                if str(book.language).lower().startswith("en")
+                else f"你点到的是“{target}”。"
+            ),
             source=HotspotSource.auto if hit else HotspotSource.vlm,
             confidence=0.9 if hit else 0.6,
             version=1,
@@ -312,10 +333,81 @@ def build_hotspots(
         hotspot.hash = content_hash(hotspot.model_dump(mode="json"))
         by_page.setdefault(page_index, []).append(hotspot)
 
+    # The script only names a handful of click targets. Add a few readable
+    # text blocks per page so the video is not clickable on one page only.
+    english = str(book.language).lower().startswith("en")
+    skip_markers = (
+        "出版社", "出版", "版社", "版权", "isbn", "仅供", "大赛", "请勿外传",
+        "内容中心", "分级", "阅读", "学而思", "课程", "教材", "编写", "书名", "作者",
+    )
+    existing_boxes = {
+        (item.page_index, tuple(item.bbox_px))
+        for items in by_page.values()
+        for item in items
+    }
+    boxes_by_page: dict[int, list[tuple[int, int, int, int]]] = {}
+    for page_index, boxes in (
+        (item.page_index, tuple(item.bbox_px))
+        for items in by_page.values()
+        for item in items
+    ):
+        boxes_by_page.setdefault(page_index, []).append(boxes)
+    existing_labels = {
+        normalize(item.label) for items in by_page.values() for item in items
+    }
+    for page in book.pages:
+        if page.index == 1:
+            # The cover is a pile of publisher labels, not story objects.
+            continue
+        added = 0
+        spans = sorted(
+            page.text_spans,
+            key=lambda span: len(str(span.text or "")),
+            reverse=True,
+        )
+        for span in spans:
+            text = str(span.text or "").strip().strip("“”\"' ")
+            if len(text) < 4 or len(text) > 40:
+                continue
+            if any(marker in text.lower() for marker in skip_markers):
+                continue
+            key = (page.index, tuple(span.bbox_px))
+            if key in existing_boxes or normalize(text) in existing_labels:
+                continue
+            if any(
+                _overlap_ratio(span.bbox_px, other) > 0.45
+                for other in boxes_by_page.get(page.index, [])
+            ):
+                continue
+            label = text[:18]
+            hotspot = Hotspot(
+                hotspot_id=f"hotspot-{spec.book_id}-p{page.index:03d}-{added + 1:02d}",
+                page_index=page.index,
+                label=label,
+                bbox_px=tuple(span.bbox_px),
+                description=(
+                    f"You tapped “{label}”."
+                    if english
+                    else f"你点到的是“{label}”这段文字。"
+                ),
+                source=HotspotSource.auto,
+                confidence=0.8,
+                version=1,
+                status=Status.active,
+                hash="0" * 16,
+            )
+            hotspot.hash = content_hash(hotspot.model_dump(mode="json"))
+            by_page.setdefault(page.index, []).append(hotspot)
+            existing_boxes.add(key)
+            boxes_by_page.setdefault(page.index, []).append(tuple(span.bbox_px))
+            existing_labels.add(normalize(label))
+            added += 1
+            if added >= 3:
+                break
+
     updated = []
     for page in book.pages:
-        if page.index in by_page:
-            page.hotspots = by_page[page.index]
+        page.hotspots = by_page.get(page.index, [])
         updated.append(page)
     book.pages = updated
     book.updated_at = _now()

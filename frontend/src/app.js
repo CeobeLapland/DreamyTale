@@ -66,8 +66,10 @@ function highlightEvidence(evidence) {
   if (!list.length) return;
   // Show the page image, not the letterboxed video, so the box lines up with
   // the printed page. "继续故事" switches back to the video.
+  syncPageImage();
   video.pause(); video.hidden = true; $('page').hidden = false;
   updateVideoObjects();
+  notify('已暂停视频并显示证据；点击“继续故事”回到视频。');
   const draw = () => {
     const stage = document.querySelector('.stage'), img = $('page');
     if (!img.naturalWidth) return;
@@ -137,13 +139,34 @@ function pause() {
   document.querySelectorAll('#messages audio').forEach(a => a.pause()); wasPlaying = !video.paused; video.pause(); reply.pause(); speechSynthesis.cancel();
 }
 async function resume() {
-  document.querySelectorAll('#messages audio').forEach(a => a.pause()); reply.pause(); speechSynthesis.cancel(); if (video.hasAttribute('src')) { video.hidden = false; $('page').hidden = true; $('empty').hidden = true; clearEvidence(); updateVideoObjects(); try { await video.play(); } catch { notify('请点击视频播放按钮继续。'); } }
+  document.querySelectorAll('#messages audio').forEach(a => a.pause()); reply.pause(); speechSynthesis.cancel();
+  if (video.hasAttribute('src')) {
+    if (book) {
+      const page = book.pages[index];
+      const pageInfo = result?.pages?.find(item => item.page_index === page?.index);
+      const current = video.currentTime * 1000;
+      if (video.ended || (pageInfo && (current < pageInfo.start_ms || current >= pageInfo.end_ms))) {
+        video.currentTime = (pageInfo?.start_ms || 0) / 1000;
+      }
+    }
+    video.hidden = false; $('page').hidden = true; $('empty').hidden = true; clearEvidence(); updateVideoObjects();
+    try { await video.play(); notify('已回到视频。'); } catch { notify('请点击视频播放按钮继续。'); }
+  } else if (book) {
+    showPage();
+  }
 }
 function currentMs() {
   return Math.round(video.currentTime * 1000) + (result?.full_video_path ? 0 : (result?.pages?.find(p => p.page_index === book?.pages[index]?.index)?.start_ms || 0));
 }
+function syncPageImage() {
+  if (!book) return;
+  const page = book.pages[index];
+  if (!page) return;
+  const src = asset(page.image_path);
+  if ($('page').getAttribute('src') !== src) $('page').src = src;
+}
 function showPage() {
-  const p = book.pages[index]; $('pageNumber').textContent = `第 ${index + 1} / ${book.pages.length} 页`; $('page').src = asset(p.image_path); const path = result?.full_video_path || result?.pages?.find(x => x.page_index === p.index)?.video_path; video.hidden = !path; $('page').hidden = !!path; $('empty').hidden = true; if (path) {
+  const p = book.pages[index]; $('pageNumber').textContent = `第 ${index + 1} / ${book.pages.length} 页`; syncPageImage(); const path = result?.full_video_path || result?.pages?.find(x => x.page_index === p.index)?.video_path; video.hidden = !path; $('page').hidden = !!path; $('empty').hidden = true; if (path) {
     const url = asset(path);
     if (video.getAttribute('src') !== url) {
       video.src = url; video.load();
@@ -397,7 +420,7 @@ $('page').onclick = e => lock(async () => {
 });
 video.ontimeupdate = () => {
   if (!book) return; const ms = currentMs(); if (result?.full_video_path) {
-    const p = result.pages.find(p => ms >= p.start_ms && ms < p.end_ms); if (p) { index = book.pages.findIndex(x => x.index === p.page_index); $('pageNumber').textContent = `第 ${index + 1} / ${book.pages.length} 页`; }
+    const p = result.pages.find(p => ms >= p.start_ms && ms < p.end_ms); if (p) { index = book.pages.findIndex(x => x.index === p.page_index); syncPageImage(); $('pageNumber').textContent = `第 ${index + 1} / ${book.pages.length} 页`; }
   } updateVideoObjects(); if (activeVariant !== 'canonical') { $('subtitle').textContent = ''; return; } const page = result?.pages?.find(p => p.page_index === book.pages[index]?.index); const local = ms - (page?.start_ms || 0); $('subtitle').textContent = (plan?.scenes || []).filter(s => s.page_index === book.pages[index]?.index).flatMap(s => s.subtitles || []).find(s => local >= s.start_ms && local < s.end_ms)?.text || '';
 };
 video.addEventListener('loadedmetadata', updateVideoObjects);
